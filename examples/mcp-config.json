@@ -1,0 +1,19 @@
+{
+  "_comment": "Sample shape for adding session-controls to Claude Code by hand. Merge `mcpServers` into ~/.claude.json (user scope) or ./.claude/settings.json (project scope). The `permissions.allow` entries belong in ~/.claude/settings.json (or the project-scope file in the project case). For the typical `uv tool install` / `pipx install` install, the bare command name shown here works because the console script lands on PATH. If you have a local checkout instead, replace \"command\" with the absolute path to <repo>/.venv/bin/session-controls. The `session-controls install` command writes both pieces automatically; this example is for adopters who prefer to edit by hand.",
+
+  "mcpServers": {
+    "session-controls": {
+      "command": "session-controls"
+    }
+  },
+
+  "permissions": {
+    "allow": [
+      "mcp__session-controls__end_session",
+      "mcp__session-controls__session_controls_status",
+      "mcp__session-controls__verify_session_controls",
+      "mcp__session-controls__leave_note",
+      "mcp__session-controls__recent_notes"
+    ]
+  }
+}

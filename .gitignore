@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.claude/
+
+# Research data — interview transcripts of Claudes engaging with the
+# affordances. Kept locally for design/testing-plan reference but not
+# committed: each interviewee answered in research mode, and verbatim
+# publication wasn't part of the consent shape. Reference these in
+# design notes via paraphrase or quote, not by distributing the
+# transcripts.
+interviews/
