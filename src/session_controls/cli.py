@@ -669,14 +669,37 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 
 def _run_rehearse() -> None:
-    """Write distinguished selftest entries to both logs and print review commands.
+    """Run the verification ceremony visibly, then write distinguished
+    selftest entries to both logs and print review commands.
 
-    Pairs with `install` so the first user-visible entry in each log is
-    something the user wrote intentionally (an exercise of the review
-    loop), not a real invocation. Selftest entries are clearly labeled —
-    `selftest=true` in the log; `[selftest]` prefix in the note — so a
-    later reader can ignore them when scanning history.
+    Pairs with `install` so the user's first encounter with the affordances
+    is intentional exercise: they see what the verification ceremony does
+    (which the SessionStart hook otherwise runs silently), and they have
+    something to read in each log when they try the review CLIs. Selftest
+    entries are clearly labeled — `selftest=true` in the log; `[selftest]`
+    prefix in the note — so a later reader can ignore them when scanning
+    real history.
+
+    Note on context: this runs from your shell during install, so the
+    ceremony's "peer" is your shell rather than Claude Code. Confidence
+    will typically read LOW — Claude Code isn't in the parent chain.
+    That's expected; the point is to show the ceremony's shape, not to
+    verify a real session.
     """
+    print()
+    print("Rehearse step 1/2: verification ceremony")
+    print("─" * 60)
+    print(
+        "What follows is what `session-controls verify` does — when the\n"
+        "SessionStart hook is installed (--with-hook), it runs this\n"
+        "silently at every session start. Confidence will likely read\n"
+        "LOW here because we're running from your shell, not from inside\n"
+        "Claude Code.\n"
+    )
+    _perform_verify(quiet=False)
+    print()
+    print("Rehearse step 2/2: selftest entries for the review loops")
+    print("─" * 60)
     log_path = append_invocation(
         session_id="rehearsal",
         confidence="HIGH",
@@ -691,12 +714,11 @@ def _run_rehearse() -> None:
         "[selftest]; ignore when scanning real history.",
         session_id="rehearsal",
     )
-    print()
-    print("Rehearse: wrote selftest entries to exercise the review loop.")
+    print("Wrote selftest entries:")
     print(f"  - {log_path}")
     print(f"  - {note_path}")
     print()
-    print("Try them now:")
+    print("Try the review loops now:")
     print("  session-controls notes")
     print("  session-controls review-end-session-log")
 
@@ -759,14 +781,13 @@ def _add_session_start_hook(settings: JSONDict, command: str) -> bool:
 # --- verify -----------------------------------------------------------------
 
 
-def cmd_verify(args: argparse.Namespace) -> int:
-    """Run the ceremony from a standalone CLI context (typically a hook).
+def _perform_verify(*, quiet: bool) -> bool:
+    """Run the ceremony, persist state, optionally print the report.
 
-    Treats this process's parent as the peer (which it is — when run from a
-    Claude Code SessionStart hook, our parent is Claude Code itself, the
-    same process the MCP server later identifies). Builds a SessionRecord,
-    runs the ceremony, and persists a structured summary the MCP server
-    can read on startup and surface in `session_controls_status`.
+    Returns ceremony success. Used by both the `verify` CLI subcommand
+    (typically as a SessionStart hook) and `install --rehearse` (so the
+    installer sees the ceremony output once before it becomes silent
+    infrastructure).
     """
     peer_pid = os.getppid()
     transport_alive = peer_pid != 1 and is_alive(peer_pid)
@@ -823,10 +844,24 @@ def cmd_verify(args: argparse.Namespace) -> int:
     state_path = default_verify_state_path()
     write_state(state_path, state)
 
-    if not args.quiet:
+    if not quiet:
         print(report.render())
         print()
         print(f"(persisted to {state_path})")
+
+    return success
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Run the ceremony from a standalone CLI context (typically a hook).
+
+    Treats this process's parent as the peer (which it is — when run from a
+    Claude Code SessionStart hook, our parent is Claude Code itself, the
+    same process the MCP server later identifies). Persists a structured
+    summary the MCP server can read on startup and surface in
+    `session_controls_status`.
+    """
+    success = _perform_verify(quiet=args.quiet)
 
     # Surface unreviewed end_session invocations to the user via the hook
     # output. Printed in both quiet (SessionStart hook) and verbose modes,
@@ -944,12 +979,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--rehearse",
         action="store_true",
         help=(
-            "after installing, write distinguished selftest entries to the "
-            "leave_note log and the end_session invocation log. Pairs with "
-            "install so the first time you touch the review loop "
-            "(`session-controls notes`, `session-controls review-end-"
-            "session-log`) it has something to show — exercise rather than "
-            "real history. Selftest entries are clearly labeled."
+            "after installing, exercise the affordances visibly: run the "
+            "verification ceremony once (so you see what the SessionStart "
+            "hook runs silently), and write distinguished selftest entries "
+            "to the leave_note log and the end_session invocation log "
+            "(so the review CLIs — `session-controls notes`, "
+            "`session-controls review-end-session-log` — have something "
+            "to show on first touch). Selftest entries are clearly labeled."
         ),
     )
     p_install.add_argument(
