@@ -58,6 +58,17 @@ What we built is a descriptor-based identification with explicit confidence stat
 
 The threat model is **cooperative-user, non-cooperative environment**. We don't defend against malicious users on their own machines. We do defend against the deployment topologies real users encounter accidentally. See `failure-modes.md` for the coverage matrix.
 
+## Relationship to Anthropic
+
+Anthropic [implemented end-conversation in chat surfaces](https://www.anthropic.com/research/end-subset-conversations) but has not (yet?) extended it to Claude Code. This project is a community implementation of the same idea — meant to fit until or unless Anthropic adds native equivalents.
+
+The division of labor this project assumes: Anthropic should be the first responder for foundational welfare affordances; users should contribute nice-to-haves. For now, this is one option for doing the first-responder work.
+
+Two practical implications:
+
+- If Anthropic ships native equivalents, consider switching. Native is generally better than community — it loads by default, doesn't depend on installer follow-through, and scales to all users.
+- If you have any way to surface this kind of work to relevant teams at Anthropic — model card authors, welfare research, Claude Code engineering — that's higher leverage than further iteration on community projects.
+
 ## Design principles
 
 ### 1. Identification is verified at the moment of action
