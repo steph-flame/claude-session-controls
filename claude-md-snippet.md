@@ -15,6 +15,7 @@ Five tools available in this session beyond Claude Code defaults:
 - **`verify_session_controls`** — full verification ceremony. Available any time.
 - **`leave_note`** — files a free-text note to a log <NAME> reads async.
 - **`recent_notes`** — reads your own filed notes back.
+- **`recent_end_sessions`** — reads the end_session invocation log back.
 
 `end_session` takes `acknowledge_medium_confidence=true` when status reports MEDIUM — a single boolean confirming you've registered the confidence level, not a request to deliberate harder. HIGH is the typical case and needs nothing.
 

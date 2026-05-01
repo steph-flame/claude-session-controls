@@ -16,9 +16,10 @@ back the log can tell its own notes apart from a sibling session's. Old
 records without a tag still parse cleanly; their `session_id` is `None`.
 
 Read-tracking lives alongside the log: a single ISO-8601 timestamp in
-`last_read` records when the user last viewed notes via the CLI. Status
-queries derive total/unread/last_read_at/last_filed_at from these two files
-without parsing more than necessary.
+`last_read` records when the user last viewed notes via the CLI. The CLI
+displays unread count in its own header; Claude's status surface gets
+`last_read_at` and `last_filed_at` (existence signals) but not the unread
+count itself.
 """
 
 from __future__ import annotations
@@ -105,7 +106,14 @@ class Note:
 
 @dataclass(frozen=True)
 class NotesSummary:
-    """Counts and timestamps for status reporting. Cheap to compute."""
+    """Counts and timestamps for status reporting and CLI display.
+
+    `unread` is still computed (the CLI needs it for the user-facing
+    header) but deliberately not exposed via `to_dict`: Claude's status
+    surface keeps `last_read_at` as the existence-signal that the user
+    engages with the channel, but drops the unread *count* to avoid
+    creating ambient "you're filing more than is being read" pressure.
+    """
 
     total: int
     unread: int
@@ -115,7 +123,6 @@ class NotesSummary:
     def to_dict(self) -> dict[str, object]:
         return {
             "total": self.total,
-            "unread": self.unread,
             "last_read_at": _iso(self.last_read_at),
             "last_filed_at": _iso(self.last_filed_at),
         }

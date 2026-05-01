@@ -209,7 +209,7 @@ def test_install_with_claude_md_writes_user_file(
         with_hook=False,
         with_claude_md=True,
         name="Steph",
-        without_pivot=False,
+        without_pivot=False, rehearse=False,
     )
     rc = cli.cmd_install(args)
     assert rc == 0
@@ -233,7 +233,7 @@ def test_install_with_claude_md_without_pivot(
         with_hook=False,
         with_claude_md=True,
         name="Steph",
-        without_pivot=True,
+        without_pivot=True, rehearse=False,
     )
     rc = cli.cmd_install(args)
     assert rc == 0
@@ -256,7 +256,7 @@ def test_install_with_claude_md_idempotent(
         with_hook=False,
         with_claude_md=True,
         name="Steph",
-        without_pivot=False,
+        without_pivot=False, rehearse=False,
     )
     cli.cmd_install(args)
     cli.cmd_install(args)
@@ -280,7 +280,7 @@ def test_install_without_claude_md_doesnt_write_it(
         with_hook=False,
         with_claude_md=False,
         name=None,
-        without_pivot=False,
+        without_pivot=False, rehearse=False,
     )
     cli.cmd_install(args)
     assert not (tmp_path / "CLAUDE.md").exists()

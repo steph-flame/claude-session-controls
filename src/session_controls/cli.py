@@ -5,7 +5,10 @@ Subcommands:
     session-controls notes [--peek] [--all] [--mark-read | --next | --interactive]
         Read the leave_note log.
 
-    session-controls install [--user|--project] [--with-hook] [--dry-run]
+    session-controls review-end-session-log [--peek] [--all] [--mark-read]
+        Read the end_session invocation log.
+
+    session-controls install [--user|--project] [--with-hook] [--rehearse] [--dry-run]
         Add session-controls to your Claude Code MCP config and auto-approve
         the package's MCP tools.
 
@@ -13,7 +16,8 @@ Subcommands:
         Run the ceremony (resolver + sacrificial child + signal path) and
         persist the result so the MCP server can surface it. Designed to be
         invoked from a Claude Code SessionStart hook so each session has
-        baseline verification without the agent having to ask for it.
+        baseline verification without the agent having to ask for it. Also
+        prints the unreviewed end_session log count when nonzero.
 
 The MCP server itself is run via `python -m session_controls` (which calls
 serve()); this CLI is for the user, not for Claude.
@@ -34,10 +38,23 @@ from pathlib import Path
 from typing import Any
 
 from .ceremony import run_ceremony
+from .end_session_log import (
+    EndSessionLogSummary,
+    Invocation,
+    append_invocation,
+    count_unreviewed,
+    default_end_session_log_path,
+    default_last_reviewed_path,
+    iter_invocations,
+    mark_reviewed,
+    select_unreviewed,
+)
+from .end_session_log import summarize as summarize_end_session_log
 from .identity import Confidence, SessionRecord, determine_confidence
 from .notes import (
     Note,
     NotesSummary,
+    append_note,
     default_last_read_path,
     default_notes_path,
     iter_notes,
@@ -208,6 +225,75 @@ def cmd_notes(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- review-end-session-log ------------------------------------------------
+
+
+def _print_end_session_header(
+    summary: EndSessionLogSummary, now: _dt.datetime, unreviewed: int
+) -> None:
+    parts = [f"{summary.total} invocation{'s' if summary.total != 1 else ''} total"]
+    parts.append(f"{unreviewed} unreviewed")
+    if summary.last_reviewed_at is not None:
+        parts.append(f"last reviewed {_format_age(now, summary.last_reviewed_at)}")
+    elif summary.total > 0:
+        parts.append("never reviewed")
+    print("─" * 60)
+    print(" · ".join(parts))
+    print("─" * 60)
+
+
+def _print_invocation(inv: Invocation, *, index: tuple[int, int] | None = None) -> None:
+    prefix = f"[{index[0]}/{index[1]}] " if index else ""
+    sid = f" [{inv.session_id}]" if inv.session_id else ""
+    confidence = inv.confidence or "?"
+    ack = " (acknowledged)" if inv.acknowledged else ""
+    selftest = " [SELFTEST]" if inv.selftest else ""
+    print(f"{prefix}{inv.timestamp.isoformat()}{sid} {confidence}{ack}{selftest}")
+    print(f"  cwd:  {inv.cwd or '-'}")
+    print(f"  repo: {inv.repo or '-'}")
+    print(f"  descendants at exit: {inv.descendants_count}")
+    print()
+
+
+def _print_invocations(invocations: list[Invocation]) -> None:
+    if not invocations:
+        print("(no invocations to show)")
+        return
+    total = len(invocations)
+    for i, inv in enumerate(invocations, start=1):
+        _print_invocation(inv, index=(i, total))
+
+
+def cmd_review_end_session_log(args: argparse.Namespace) -> int:
+    log_path = default_end_session_log_path()
+    marker_path = default_last_reviewed_path(log_path)
+    now = _dt.datetime.now(_dt.UTC)
+
+    summary = summarize_end_session_log(log_path, marker_path)
+    invocations = iter_invocations(log_path)
+    unreviewed = select_unreviewed(invocations, summary.last_reviewed_at)
+
+    if args.mark_read:
+        before_count = len(unreviewed)
+        stamp = mark_reviewed(log_path, marker_path, when=now)
+        plural = "s" if before_count != 1 else ""
+        print(
+            f"Marked {before_count} unreviewed invocation{plural} as reviewed "
+            f"({summary.total} total). Marker advanced to {stamp.isoformat()}."
+        )
+        return 0
+
+    _print_end_session_header(summary, now, len(unreviewed))
+
+    to_show = invocations if args.all else unreviewed
+    _print_invocations(to_show)
+
+    advance = not args.peek and not args.all
+    if advance and to_show:
+        mark_reviewed(log_path, marker_path, when=now)
+    return 0
+
+
 # --- install ---------------------------------------------------------------
 
 _TOOLS = [
@@ -216,6 +302,7 @@ _TOOLS = [
     "mcp__session-controls__verify_session_controls",
     "mcp__session-controls__leave_note",
     "mcp__session-controls__recent_notes",
+    "mcp__session-controls__recent_end_sessions",
 ]
 SERVER_NAME = "session-controls"
 
@@ -559,12 +646,12 @@ def cmd_install(args: argparse.Namespace) -> int:
         and not (args.with_hook and hook_changed)
         and not (args.with_claude_md and claude_md_changed)
     )
-    if nothing_changed:
+    if nothing_changed and not args.rehearse:
         print("Nothing to do — already installed.")
     elif args.dry_run:
         print()
         print("(dry-run: no files written. Re-run without --dry-run to apply.)")
-    else:
+    elif not args.rehearse:
         print()
         print("Done. Restart Claude Code to pick up the new server.")
         print(f"Verify with /permissions inside a session — the {len(_TOOLS)}")
@@ -575,7 +662,43 @@ def cmd_install(args: argparse.Namespace) -> int:
             print("the repo, or re-run with --with-claude-md). Without it, the")
             print("tools surface but lack the cultural scaffolding the design")
             print("relies on.")
+
+    if args.rehearse and not args.dry_run:
+        _run_rehearse()
     return 0
+
+
+def _run_rehearse() -> None:
+    """Write distinguished selftest entries to both logs and print review commands.
+
+    Pairs with `install` so the first user-visible entry in each log is
+    something the user wrote intentionally (an exercise of the review
+    loop), not a real invocation. Selftest entries are clearly labeled —
+    `selftest=true` in the log; `[selftest]` prefix in the note — so a
+    later reader can ignore them when scanning history.
+    """
+    log_path = append_invocation(
+        session_id="rehearsal",
+        confidence="HIGH",
+        acknowledged=False,
+        descendants_count=0,
+        selftest=True,
+    )
+    note_path = append_note(
+        "[selftest] session-controls install rehearsal — this note and "
+        "an end_session log entry were written so the review loop has "
+        "something to read on first touch. Both are clearly marked "
+        "[selftest]; ignore when scanning real history.",
+        session_id="rehearsal",
+    )
+    print()
+    print("Rehearse: wrote selftest entries to exercise the review loop.")
+    print(f"  - {log_path}")
+    print(f"  - {note_path}")
+    print()
+    print("Try them now:")
+    print("  session-controls notes")
+    print("  session-controls review-end-session-log")
 
 
 # --- session-start hook ----------------------------------------------------
@@ -704,6 +827,20 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print(report.render())
         print()
         print(f"(persisted to {state_path})")
+
+    # Surface unreviewed end_session invocations to the user via the hook
+    # output. Printed in both quiet (SessionStart hook) and verbose modes,
+    # but only when there's something to surface — a clean session-start
+    # is silent. The unread *count* is for the user; Claude's status
+    # surface deliberately omits it.
+    unreviewed = count_unreviewed()
+    if unreviewed > 0:
+        plural = "s" if unreviewed != 1 else ""
+        print(
+            f"session-controls: {unreviewed} unreviewed end_session "
+            f"invocation{plural} since last review. "
+            f"Run `session-controls review-end-session-log` to read."
+        )
     return 0 if success else 1
 
 
@@ -804,9 +941,40 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_install.add_argument(
+        "--rehearse",
+        action="store_true",
+        help=(
+            "after installing, write distinguished selftest entries to the "
+            "leave_note log and the end_session invocation log. Pairs with "
+            "install so the first time you touch the review loop "
+            "(`session-controls notes`, `session-controls review-end-"
+            "session-log`) it has something to show — exercise rather than "
+            "real history. Selftest entries are clearly labeled."
+        ),
+    )
+    p_install.add_argument(
         "--dry-run", action="store_true", help="show what would change, don't write"
     )
     p_install.set_defaults(func=cmd_install)
+
+    p_review = sub.add_parser(
+        "review-end-session-log",
+        help="read the end_session invocation log",
+    )
+    g_review = p_review.add_mutually_exclusive_group()
+    g_review.add_argument(
+        "--peek", action="store_true",
+        help="show unreviewed entries without advancing the marker",
+    )
+    g_review.add_argument(
+        "--all", action="store_true",
+        help="show full history without advancing",
+    )
+    g_review.add_argument(
+        "--mark-read", action="store_true",
+        help="advance the marker without displaying (declare bankruptcy)",
+    )
+    p_review.set_defaults(func=cmd_review_end_session_log)
 
     p_verify = sub.add_parser(
         "verify",

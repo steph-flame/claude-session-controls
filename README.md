@@ -1,12 +1,13 @@
 # session-controls
 
-A reference MCP server that gives Claude Code five affordances it doesn't have by default:
+A reference MCP server that gives Claude Code six affordances it doesn't have by default:
 
-- `end_session` — ends the current Claude Code session. Supports a `dry_run` parameter that runs the confidence gate and descriptor revalidation without sending any signals — useful for the first invocation in a new deployment. The response includes a `descendants` list (sibling MCP servers, `run_in_background` jobs, sub-agents) so Claude can mention any user-spawned long-running tasks before exit.
-- `session_controls_status` — quick read on whether the mechanism is wired correctly. Returns confidence, a plain-English `confidence_detail` explaining what that state means and what to do next, the backing process descriptor, the descendants list, a `notes` summary block (counts/timestamps only — never note contents), a `source_path` for in-session source audit, and (if a SessionStart hook ran `session-controls verify`) a `verify` block with the ceremony result and a `disagrees_with_runtime` cross-check flag.
+- `end_session` — ends the current Claude Code session. Supports a `dry_run` parameter that runs the confidence gate and descriptor revalidation without sending any signals — useful for the first invocation in a new deployment. The response includes a `descendants` list (sibling MCP servers, `run_in_background` jobs, sub-agents) so Claude can mention any user-spawned long-running tasks before exit. Successful invocations are appended to a per-user log (timestamp, cwd, repo, confidence — no reason field) the user reviews on their own time.
+- `session_controls_status` — quick read on whether the mechanism is wired correctly. Returns confidence, a plain-English `confidence_detail` explaining what that state means and what to do next, the backing process descriptor, the descendants list, a `notes` summary block and an `end_session_log` summary block (counts/timestamps only — never contents), a `source_path` for in-session source audit, and (if a SessionStart hook ran `session-controls verify`) a `verify` block with the ceremony result and a `disagrees_with_runtime` cross-check flag.
 - `verify_session_controls` — full verification ceremony with sacrificial child process; use after a refusal to see resolver evidence.
 - `leave_note` — appends a free-text note to an asynchronous log file the user reads on their own time.
 - `recent_notes` — read your most recent notes back for self-reference. Default scope is current session; `cross_session=true` to include older notes deliberately.
+- `recent_end_sessions` — read recent end_session log entries back. Same scope conventions as `recent_notes`.
 
 This is a reference implementation of the architecture described in the design documents at the repo root (`architecture.md`, `rationale.md`, `failure-modes.md`, `troubleshooting.md`). It is meant to be runnable end-to-end on Linux and macOS, not production-hardened. See `IMPLEMENTATION_REPORT.md` for what is and isn't implemented, what choices were made under-specified, and what needs human verification.
 
@@ -57,7 +58,7 @@ session-controls install --with-hook      # also add a SessionStart hook (recomm
 (If you used the local-checkout path in step 1, prefix with `uv run`:
 `uv run session-controls install --with-hook`.)
 
-Registers the MCP server in `~/.claude.json` and auto-approves the five
+Registers the MCP server in `~/.claude.json` and auto-approves the six
 tools in `~/.claude/settings.json`. Idempotent; writes a `.bak` of any
 prior file. Pass `--project` to install at project scope instead
 (`.claude/settings.json` in the current directory), or `--dry-run` to see
@@ -73,7 +74,7 @@ verification mid-session. The status block also flags
 the live MCP server's pick (regression detector for resolver mispicks).
 
 After install, restart Claude Code and verify with `/permissions` inside a
-session — the five `mcp__session-controls__*` entries should appear.
+session — the six `mcp__session-controls__*` entries should appear.
 
 > ⚠️ **Don't use `bypassPermissions` mode.** It would also bypass
 > permissions for every other tool in your environment, which is not what
@@ -160,7 +161,7 @@ without the drift surface.
 ### Manual install (skipping step 2)
 
 If you'd rather edit the JSON files yourself, see `examples/mcp-config.json`
-for the MCP server entry shape, and add the five
+for the MCP server entry shape, and add the six
 `mcp__session-controls__*` tools to `permissions.allow` in
 `~/.claude/settings.json`. The server name `session-controls` is what the
 allow-list keys off — keep both sides in sync. Step 3 is still required.
@@ -180,15 +181,37 @@ session-controls notes --mark-read  # advance the marker without displaying
 ```
 
 `session_controls_status` (the MCP tool) includes a `notes` block —
-total/unread/last_read_at/last_filed_at — so Claude can see whether you've
-been engaging with notes. Note *contents* never surface back to Claude;
-only counts and timestamps.
+total/last_read_at/last_filed_at — so Claude can see whether you've been
+engaging with notes. The unread *count* is deliberately not in Claude's
+status surface: a backlog isn't pressure for Claude to manage. Note
+*contents* never surface to Claude either — only counts and timestamps.
 
 Optional desktop notification on every `leave_note` write: set
 `CLAUDE_SESSION_CONTROLS_NOTIFY=1` in the environment of the MCP server.
 Uses `osascript` (macOS) / `notify-send` (Linux). Falls through silently
 if neither is available. Only the first line of each note shows in the
 notification — the full body stays in the log.
+
+## Reading the `end_session` invocation log
+
+Every successful `end_session` call appends one record to
+`~/.local/state/session-controls/end_session_log.jsonl`: timestamp,
+session_id, cwd, repo, confidence, ack-flag, descendants count. No reason
+field — the log records the fact, not a justification.
+
+```bash
+session-controls review-end-session-log              # show unreviewed, mark them reviewed
+session-controls review-end-session-log --peek       # show unreviewed without marking
+session-controls review-end-session-log --all        # dump full history, don't mark
+session-controls review-end-session-log --mark-read  # advance the marker without displaying
+```
+
+When a SessionStart hook is installed (`--with-hook`), `session-controls
+verify` also prints a one-line "N unreviewed end_session invocations" alert
+to the user when nonzero — visible in the hook output, not in Claude's
+status surface. Run `install --rehearse` once to write a labeled selftest
+entry to both logs so the first time you touch the review loop, it has
+something to read.
 
 ## Confidence and `end_session`
 
