@@ -81,6 +81,46 @@ class ProcessDescriptor:
             return False
         return not (self.cmdline and other.cmdline and self.cmdline != other.cmdline)
 
+    def describe_mismatch(self, other: ProcessDescriptor) -> str | None:
+        """Describe how `other` fails to match `self`, mirroring `matches()`.
+
+        Returns None when `other` matches. When `matches()` returns False,
+        returns a short string naming what changed — used to surface drift
+        details for the MEDIUM confidence refusal so the caller can decide
+        whether the change makes sense (e.g. expected restart vs. unexpected
+        swap) before acking.
+        """
+        if self.pid != other.pid:
+            return f"pid changed: {self.pid} → {other.pid}"
+        have_both_start_times = (
+            self.start_time is not None and other.start_time is not None
+        )
+        if have_both_start_times:
+            assert self.start_time is not None and other.start_time is not None
+            if abs(self.start_time - other.start_time) > 0.5:
+                return (
+                    f"start_time changed: {self.start_time} → {other.start_time} "
+                    "(original process likely exited and PID was reused)"
+                )
+            if self.cmdline and other.cmdline and self.cmdline != other.cmdline:
+                return (
+                    f"cmdline changed: {list(self.cmdline)} → {list(other.cmdline)} "
+                    "(process re-exec'd into a different program)"
+                )
+            return None
+        # No freshness anchor on at least one side — strict fallback.
+        if self.exe_path and other.exe_path and self.exe_path != other.exe_path:
+            return (
+                f"exe_path changed: {self.exe_path!r} → {other.exe_path!r} "
+                "(no start_time available to corroborate)"
+            )
+        if self.cmdline and other.cmdline and self.cmdline != other.cmdline:
+            return (
+                f"cmdline changed: {list(self.cmdline)} → {list(other.cmdline)} "
+                "(no start_time available to corroborate)"
+            )
+        return None
+
     def fully_corroborated(self) -> bool:
         """True iff we have a freshness anchor and at least one identity field.
 
@@ -116,11 +156,17 @@ class SessionRecord:
     last_verified: float
     warnings: tuple[str, ...] = field(default_factory=tuple)
     descendants: tuple[ProcessDescriptor, ...] = field(default_factory=tuple)
+    # Populated when confidence is MEDIUM due to descriptor drift from launch
+    # baseline. Names what specifically changed so the gate's refusal text and
+    # confidence_detail can surface it without an extra tool call.
+    drift_description: str | None = None
 
     def to_status_dict(self) -> dict[str, object]:
         return {
             "confidence": self.confidence.value,
-            "confidence_detail": _confidence_detail(self.confidence, self.backing),
+            "confidence_detail": _confidence_detail(
+                self.confidence, self.backing, self.drift_description
+            ),
             "peer_pid": self.peer_pid,
             "backing_pid": self.backing.pid if self.backing else None,
             "backing_exe": self.backing.exe_path if self.backing else None,
@@ -141,7 +187,11 @@ def _descendant_summary(d: ProcessDescriptor) -> dict[str, object]:
     }
 
 
-def _confidence_detail(confidence: Confidence, backing: ProcessDescriptor | None) -> str:
+def _confidence_detail(
+    confidence: Confidence,
+    backing: ProcessDescriptor | None,
+    drift_description: str | None = None,
+) -> str:
     """Plain-English explanation of the current confidence state.
 
     Aimed at giving Claude (or the user reading status) enough to know whether
@@ -154,21 +204,29 @@ def _confidence_detail(confidence: Confidence, backing: ProcessDescriptor | None
             "corroborated and matches the launch-time baseline."
         )
     if confidence is Confidence.MEDIUM:
-        if backing is not None and backing.inspection_errors:
+        if drift_description is not None:
             return (
                 "end_session requires acknowledge_medium_confidence=true. "
-                f"Backing process identified but inspection had errors "
-                f"({list(backing.inspection_errors)}) and corroboration is "
-                "below the threshold (need start_time + at least one of "
-                "exe/cmdline). "
-                "Run verify_session_controls or end_session(dry_run=true) to inspect."
+                f"Descriptor drifted from launch baseline: {drift_description}. "
+                "Decide whether the change makes sense before acking."
+            )
+        # Partial corroboration: backing identified but evidence is degraded.
+        if backing is not None:
+            if backing.start_time is None:
+                missing = "start_time (no freshness anchor — can't detect PID reuse)"
+            elif backing.cmdline is None and backing.exe_path is None:
+                missing = "cmdline and exe_path (no identity evidence — only PID + start_time)"
+            else:
+                missing = "fields below corroboration threshold"
+            errs = list(backing.inspection_errors) if backing.inspection_errors else []
+            err_suffix = f" Inspection errors: {errs}." if errs else ""
+            return (
+                "end_session requires acknowledge_medium_confidence=true. "
+                f"Critical identity inspection failed: missing {missing}.{err_suffix}"
             )
         return (
             "end_session requires acknowledge_medium_confidence=true. "
-            "Backing process identified but the descriptor has drifted from "
-            "the launch-time baseline (PID may have been reused or the "
-            "process swapped). "
-            "Run verify_session_controls or end_session(dry_run=true) to inspect."
+            "Backing process identified but confidence is below HIGH."
         )
     if confidence is Confidence.LOW:
         return (

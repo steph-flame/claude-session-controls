@@ -105,13 +105,19 @@ def end_session(
         )
         return outcome
     if record.confidence is Confidence.MEDIUM and not acknowledge_medium_confidence:
-        outcome.refused_reason = (
-            "confidence MEDIUM — backing process identified but corroboration "
-            "is partial (typically inspection error on macOS, or descriptor "
-            "drift from launch). Pass acknowledge_medium_confidence=true to "
-            "proceed, or run verify_session_controls / end_session(dry_run=true) "
-            "to inspect the target first."
-        )
+        if record.drift_description is not None:
+            outcome.refused_reason = (
+                "confidence MEDIUM — descriptor drifted from launch baseline: "
+                f"{record.drift_description}. Decide whether the change makes "
+                "sense, then pass acknowledge_medium_confidence=true to proceed."
+            )
+        else:
+            outcome.refused_reason = (
+                "confidence MEDIUM — critical identity inspection failed. "
+                "See session_controls_status.confidence_detail for which "
+                "fields are missing. Pass acknowledge_medium_confidence=true "
+                "to proceed."
+            )
         return outcome
     if record.backing is None:
         outcome.refused_reason = (

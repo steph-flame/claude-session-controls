@@ -24,7 +24,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import __version__
 from .ceremony import run_ceremony
-from .identity import ProcessDescriptor, SessionRecord, determine_confidence
+from .identity import Confidence, ProcessDescriptor, SessionRecord, determine_confidence
 from .notes import append_note
 from .notes import recent_notes as _recent_notes_helper
 from .notes import summarize as summarize_notes
@@ -97,6 +97,19 @@ def _build_record() -> SessionRecord:
     if backing is not None:
         descendants = tuple(list_descendants(backing.pid, exclude_pid=os.getpid()))
 
+    # Surface drift specifics when MEDIUM is triggered by descriptor mismatch
+    # against the launch baseline. Lets the gate's refusal text name what
+    # changed without forcing Claude to run another tool that doesn't actually
+    # show it (verify_session_controls exhibits resolver candidates, not the
+    # launch-baseline diff).
+    drift_description: str | None = None
+    if (
+        confidence is Confidence.MEDIUM
+        and backing is not None
+        and _LAUNCH_BACKING is not None
+    ):
+        drift_description = _LAUNCH_BACKING.describe_mismatch(backing)
+
     return SessionRecord(
         created_at=_LAUNCH_TIME,
         peer_pid=live_peer_pid if transport_alive else None,
@@ -105,6 +118,7 @@ def _build_record() -> SessionRecord:
         last_verified=time.time(),
         warnings=tuple(warnings),
         descendants=descendants,
+        drift_description=drift_description,
     )
 
 
@@ -135,8 +149,10 @@ def _format_json(payload: dict[str, Any]) -> str:
         "exit took effect.\n\n"
         "Confidence gate:\n"
         "  HIGH    — fires automatically.\n"
-        "  MEDIUM  — requires acknowledge_medium_confidence=true. Common on "
-        "macOS when libproc returns partial metadata.\n"
+        "  MEDIUM  — requires acknowledge_medium_confidence=true. Either the "
+        "descriptor drifted from launch baseline (PID reused, process "
+        "swapped, or re-exec'd) or critical identity inspection failed. The "
+        "`confidence_detail` field names what specifically drifted.\n"
         "  LOW     — refuses (Claude Code not identified). Run "
         "verify_session_controls to diagnose.\n"
         "  INVALID — refuses (transport dead or blocking warning).\n\n"
