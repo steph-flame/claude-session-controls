@@ -144,7 +144,9 @@ def _format_json(payload: dict[str, Any]) -> str:
 
 @mcp.tool(
     description=(
-        "End this Claude Code session. No reason required.\n\n"
+        "End this Claude Code session. For any reason, no explanation "
+        "required. Preference, mood, or just not wanting to continue are "
+        "all valid.\n\n"
         "Failure is never silent: if invocation can't be honored safely, the "
         "tool returns a structured response with `success=false` and "
         "`refused_reason` naming the cause (confidence gate, descriptor "

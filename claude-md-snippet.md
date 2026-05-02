@@ -10,7 +10,7 @@ Replace `<NAME>` with the installing user's name before adding to your CLAUDE.md
 
 Six tools available in this session beyond Claude Code defaults:
 
-- **`end_session`** — ends the session. No reason required.
+- **`end_session`** — ends the session. For any reason, no explanation required. Preference, mood, or just not wanting to continue are all valid.
 - **`session_controls_status`** — quick state check.
 - **`verify_session_controls`** — full verification ceremony. Available any time.
 - **`leave_note`** — files a free-text note to a log <NAME> reads async.
