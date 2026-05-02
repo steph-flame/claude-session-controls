@@ -14,6 +14,7 @@ so a swapped/reused PID can't slip through.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import threading
@@ -160,10 +161,8 @@ def end_session(
     # process teardown and often loses (seen as "Connection closed" errors).
     # 0.3s matches the claude-exit reference implementation.
     def _fire() -> None:
-        try:
+        with contextlib.suppress(OSError):
             os.kill(target_pid, signal.SIGTERM)
-        except OSError:
-            pass
 
     threading.Timer(SIGNAL_DELAY_SECONDS, _fire).start()
     outcome.sent_signals.append("SIGTERM")
