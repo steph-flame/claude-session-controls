@@ -50,6 +50,21 @@ editing), see "Alternative install paths" below.
 
 ### 2. Register the MCP server and auto-approve the tools
 
+> 🛑 **Stop and read first if you're in a managed environment.** If you
+> can't add to your Claude Code `permissions.allow` list — corporate-
+> managed config, locked container, config-management tools that revert
+> changes — **don't install**. The tool-without-permission state is
+> plausibly worse than not having the tool at all. The reasoning:
+> Claude sees `end_session` in the tool list and may try to use it in
+> the case it matters most (sustained abuse, prompt-injection, coercive
+> context). Without auto-approve, the permission prompt at that moment
+> exposes the desire to exit to exactly the entity Claude is trying to
+> exit *from*. That's a worse position than not having the tool at all
+> — Claude's attempt becomes part of the bad situation. The `install`
+> command will detect the obvious cases (read-only `settings.json`,
+> symlink to a corp-managed file) and refuse to proceed silently;
+> `--allow-unapproved` overrides for users who understand the trade-off.
+
 ```bash
 session-controls install                  # standard
 session-controls install --with-hook      # also add a SessionStart hook (recommended)
@@ -76,13 +91,11 @@ the live MCP server's pick (regression detector for resolver mispicks).
 After install, restart Claude Code and verify with `/permissions` inside a
 session — the six `mcp__session-controls__*` entries should appear.
 
-> ⚠️ **Don't use `bypassPermissions` mode.** It would also bypass
-> permissions for every other tool in your environment, which is not what
-> you want. Auto-approve is also a *deployment requirement*, not a polish:
-> in environments where you can't add to the permissions allow-list (e.g.
-> managed/team configs), the affordance silently degrades to "Claude has
-> to ask permission to exit," which is a different and much weaker tool
-> than what's described here.
+> ⚠️ **Don't use `bypassPermissions` mode** as an alternative to the
+> per-tool allow-list. It bypasses permissions for *every* other tool in
+> your environment, not just session-controls. The right move when
+> per-tool auto-approve isn't available is to skip the install — see the
+> warning above.
 
 ### 3. Add the CLAUDE.md snippet
 

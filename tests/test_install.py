@@ -257,7 +257,7 @@ def test_install_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.Monk
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=True, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False)
+    args = argparse.Namespace(project=False, user_scope=False, dry_run=True, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
     rc = cli.cmd_install(args)
     assert rc == 0
     assert not (tmp_path / "settings.json").exists()
@@ -272,7 +272,7 @@ def test_install_writes_both_files(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False)
+    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
     rc = cli.cmd_install(args)
     assert rc == 0
     mcp_config = json.loads((tmp_path / "mcp.json").read_text())
@@ -292,7 +292,7 @@ def test_install_with_hook_writes_hook_entry(
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=True, with_claude_md=False, name=None, without_pivot=False, rehearse=False)
+    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=True, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
     rc = cli.cmd_install(args)
     assert rc == 0
     settings = json.loads((tmp_path / "settings.json").read_text())
@@ -319,7 +319,7 @@ def test_install_without_hook_does_not_add_hook(
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False)
+    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
     rc = cli.cmd_install(args)
     assert rc == 0
     settings = json.loads((tmp_path / "settings.json").read_text())
@@ -336,7 +336,7 @@ def test_install_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False)
+    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
     cli.cmd_install(args)
     cli.cmd_install(args)
     settings = json.loads((tmp_path / "settings.json").read_text())

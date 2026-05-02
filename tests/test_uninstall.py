@@ -30,7 +30,7 @@ def _install_args(**overrides: object) -> argparse.Namespace:
     defaults: dict[str, object] = {
         "project": False, "user_scope": False, "dry_run": False,
         "with_hook": False, "with_claude_md": False, "name": None,
-        "without_pivot": False, "rehearse": False,
+        "without_pivot": False, "rehearse": False, "allow_unapproved": False,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

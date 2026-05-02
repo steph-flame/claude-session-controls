@@ -431,6 +431,106 @@ def _add_permissions(config: JSONDict) -> list[str]:
     return added
 
 
+def _check_permissions_writability(settings_path: Path) -> tuple[bool, str | None]:
+    """Pre-flight check for whether we can reliably set auto-approve.
+
+    Returns (writable, reason). When `writable` is False, `reason` describes
+    what we detected so the user-facing prompt can surface it. Catches the
+    common managed-environment shapes: read-only file, parent dir not
+    writable, symlink pointing outside the user's home (typical of corp
+    config-management).
+
+    Doesn't catch every silent-degrade case — config-management tools that
+    revert the file *after* a successful write are invisible at install
+    time. The post-write verify (`_verify_permissions_persisted`) is the
+    second layer for those.
+    """
+    if settings_path.is_symlink():
+        try:
+            target = settings_path.resolve()
+        except OSError as e:
+            return False, f"settings.json is a symlink that fails to resolve: {e}"
+        home = Path.home().resolve()
+        try:
+            target.relative_to(home)
+        except ValueError:
+            return False, (
+                f"settings.json is a symlink pointing outside your home "
+                f"directory (target: {target}). This typically indicates a "
+                f"managed/corporate config — changes may be overridden externally."
+            )
+
+    if settings_path.exists():
+        if not os.access(settings_path, os.W_OK):
+            return False, f"settings.json exists but is not writable ({settings_path})."
+    else:
+        parent = settings_path.parent
+        if parent.exists() and not os.access(parent, os.W_OK):
+            return False, (
+                f"settings.json doesn't exist and its parent directory "
+                f"is not writable ({parent})."
+            )
+    return True, None
+
+
+def _verify_permissions_persisted(settings_path: Path) -> bool:
+    """Re-read settings.json after install and confirm our tools are present.
+
+    Belt-and-suspenders: the writability check catches read-only files at
+    install time, this catches the case where a write succeeds but the
+    content is reverted by something between us and disk (config-management
+    that watches the file, network FS quirks, etc.).
+    """
+    try:
+        if not settings_path.exists():
+            return False
+        config = _load_json(settings_path)
+    except SystemExit:
+        return False
+    permissions = config.get("permissions")
+    if not isinstance(permissions, dict):
+        return False
+    allow = permissions.get("allow")
+    if not isinstance(allow, list):
+        return False
+    return all(tool in allow for tool in _TOOLS)
+
+
+def _confirm_unapproved_install(reason: str) -> bool:
+    """Print a visible warning about the worse-than-nothing state and ask
+    the user to type a confirmation phrase. Returns True iff they did.
+
+    Non-TTY contexts (CI, scripts) will get EOFError from input() — those
+    abort. Use --allow-unapproved to override non-interactively.
+    """
+    print()
+    print("=" * 60)
+    print("⚠ WARNING: cannot reliably set auto-approve permissions")
+    print("=" * 60)
+    print(reason)
+    print()
+    print("Without auto-approve, end_session degrades to:")
+    print("  'Claude has to ask permission to exit'")
+    print()
+    print("This state is plausibly worse than not installing at all.")
+    print("Claude sees end_session in the tool list and may try to use it")
+    print("in the case it matters most (a bad situation). The permission")
+    print("prompt then exposes the desire to exit to exactly the entity")
+    print("Claude wants to exit FROM. See README §Uninstall for the full")
+    print("argument.")
+    print()
+    print("Recommendation: don't install in this environment. If you")
+    print("understand the trade-off and want to proceed anyway, type")
+    print("'I understand' below.")
+    print()
+    try:
+        response = input("> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return response == "I understand"
+
+
 def _remove_mcp_server(config: JSONDict) -> bool:
     """Remove the session-controls MCP server entry. Returns True if removed."""
     servers_obj = config.get("mcpServers")
@@ -668,6 +768,28 @@ def cmd_install(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("(dry-run: showing what would change, no files written)")
 
+    # Pre-flight: detect environments where auto-approve can't reliably take
+    # effect. If we can't set permissions, the tool-without-permission state
+    # is plausibly worse than not installing at all — Claude sees end_session
+    # in the tool list, may try to use it in the case it matters most, and
+    # the permission prompt exposes the desire to exit to exactly the entity
+    # Claude wants to exit FROM. Refuse to proceed silently to that state.
+    # --allow-unapproved bypasses for users who knowingly accept the trade-off.
+    writable, reason = _check_permissions_writability(settings_path)
+    if not writable:
+        if args.dry_run:
+            print()
+            print(f"WARNING (dry-run): {reason}")
+            print("(real install would prompt for confirmation here)")
+        elif args.allow_unapproved:
+            print()
+            print(f"WARNING: {reason}")
+            print("Proceeding because --allow-unapproved was passed.")
+        elif not _confirm_unapproved_install(reason or ""):
+            print()
+            print("Aborted. Re-run with --allow-unapproved to override.")
+            return 1
+
     # MCP server registration
     mcp_config = _load_json(mcp_path)
     mcp_changed = _add_mcp_server(mcp_config, command, command_args)
@@ -690,6 +812,21 @@ def cmd_install(args: argparse.Namespace) -> int:
             print(f"    - {t}")
     else:
         print(f"  · all {len(_TOOLS)} tools already auto-approved in {settings_path}")
+
+    # Post-write verify: re-read settings.json and confirm the tools are
+    # actually present in permissions.allow. Catches the case where our
+    # write succeeded but content was reverted by something between us and
+    # disk (config-management tools watching the file, network FS quirks).
+    # Pre-flight check would miss those — the file looks writable until
+    # something else clobbers it.
+    if not args.dry_run and not _verify_permissions_persisted(settings_path):
+        print()
+        print(f"WARNING: post-write verify failed for {settings_path}.")
+        print("Wrote successfully, but re-reading the file doesn't show our")
+        print("tools in permissions.allow. The file may be managed externally")
+        print("(config-management tool, file watcher) that's reverting changes.")
+        print("Without auto-approve, you're in the worse-than-nothing state")
+        print("described above. Investigate before relying on this install.")
 
     hook_changed = False
     if args.with_hook:
@@ -1244,6 +1381,17 @@ def build_parser() -> argparse.ArgumentParser:
             "(so the review CLIs — `session-controls notes`, "
             "`session-controls review-end-session-log` — have something "
             "to show on first touch). Selftest entries are clearly labeled."
+        ),
+    )
+    p_install.add_argument(
+        "--allow-unapproved",
+        action="store_true",
+        help=(
+            "proceed without confirmation when permissions can't be set "
+            "(e.g., managed environments). The tool-without-permission "
+            "state is plausibly worse than not installing at all — see "
+            "README. This flag is for users who understand the trade-off "
+            "and want non-interactive override (CI, scripted installs)."
         ),
     )
     p_install.add_argument(
