@@ -1,7 +1,7 @@
 """Tests for the termination flow.
 
-These cover the confidence-gate refusal paths and the dry-run path. They do
-NOT actually signal any process — for live signaling, see the verification
+These cover the gate refusal paths and the dry-run path. They do NOT
+actually signal any process — for live signaling, see the verification
 ceremony's sacrificial-child mechanism.
 """
 
@@ -46,11 +46,25 @@ def test_refuses_low() -> None:
     assert "LOW" in out.refused_reason
 
 
-def test_refuses_medium_without_acknowledgment() -> None:
-    out = end_session(_record_with(Confidence.MEDIUM, backing=inspect(os.getpid())))
+def test_refuses_low_with_drift_description() -> None:
+    """When LOW is triggered by descriptor drift, refused_reason names the
+    specific change. (Decision 10 collapsed the old MEDIUM-with-ack path
+    into LOW; the drift-specific text is what was previously on the MEDIUM
+    refusal.)"""
+    record = SessionRecord(
+        created_at=time.time(),
+        peer_pid=os.getppid(),
+        backing=inspect(os.getpid()),
+        confidence=Confidence.LOW,
+        last_verified=time.time(),
+        drift_description="cmdline changed: ['claude'] → ['sh', '-c', 'echo hi']",
+    )
+    out = end_session(record)
     assert not out.success
     assert out.refused_reason is not None
-    assert "acknowledge_medium_confidence" in out.refused_reason
+    assert "LOW" in out.refused_reason
+    assert "drifted" in out.refused_reason
+    assert "cmdline changed" in out.refused_reason
 
 
 def test_dry_run_succeeds_without_signaling() -> None:

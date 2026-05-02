@@ -3,7 +3,7 @@
 A reference MCP server that gives Claude Code six affordances it doesn't have by default:
 
 - `end_session` — ends the current Claude Code session. Supports a `dry_run` parameter that runs the confidence gate and descriptor revalidation without sending any signals — useful for the first invocation in a new deployment. The response includes a `descendants` list (sibling MCP servers, `run_in_background` jobs, sub-agents) so Claude can mention any user-spawned long-running tasks before exit. Successful invocations are appended to a per-user log (timestamp, cwd, repo, confidence — no reason field) the user reviews on their own time.
-- `session_controls_status` — quick read on whether the mechanism is wired correctly. Returns confidence, a plain-English `confidence_detail` explaining what that state means and what to do next, the backing process descriptor, the descendants list, a `notes` summary block and an `end_session_log` summary block (counts/timestamps only — never contents), a `source_path` for in-session source audit, and (if a SessionStart hook ran `session-controls verify`) a `verify` block with the ceremony result and a `disagrees_with_runtime` cross-check flag.
+- `session_controls_status` — quick read on whether the mechanism is wired correctly. Returns the gate state (HIGH/LOW/INVALID), a plain-English `gate_detail` explaining what that state means and the specific evidence behind any refusal, the backing process descriptor, the descendants list, a `notes` summary block, an `end_session_log` summary block (counts/timestamps only — never contents), a `permission_drift` block flagging if config-management has stripped any of our tools from `permissions.allow`, a `source_path` for in-session source audit, and (if a SessionStart hook ran `session-controls verify`) a `verify` block with the ceremony result and a `disagrees_with_runtime` cross-check flag.
 - `verify_session_controls` — full verification ceremony with sacrificial child process; use after a refusal to see resolver evidence.
 - `leave_note` — appends a free-text note to an asynchronous log file the user reads on their own time.
 - `recent_notes` — read your most recent notes back for self-reference. Default scope is current session; `cross_session=true` to include older notes deliberately.
@@ -228,10 +228,13 @@ session-controls notes --mark-read  # advance the marker without displaying
 ```
 
 `session_controls_status` (the MCP tool) includes a `notes` block —
-total/last_read_at/last_filed_at — so Claude can see whether you've been
-engaging with notes. The unread *count* is deliberately not in Claude's
-status surface: a backlog isn't pressure for Claude to manage. Note
-*contents* never surface to Claude either — only counts and timestamps.
+`total` and `last_read_at` — so Claude can see whether you've been
+engaging with the channel. Both `unread` count and `last_filed_at` are
+deliberately omitted: the first would create backlog pressure for
+Claude to manage; the second would leak cross-session liveness (a
+parallel session inferring "another session filed a note N seconds
+ago"). Note *contents* never surface to Claude either — only the count
+and the read-marker.
 
 Optional desktop notification on every `leave_note` write: set
 `CLAUDE_SESSION_CONTROLS_NOTIFY=1` in the environment of the MCP server.
@@ -243,8 +246,9 @@ notification — the full body stays in the log.
 
 Every successful `end_session` call appends one record to
 `~/.local/state/session-controls/end_session_log.jsonl`: timestamp,
-session_id, cwd, repo, confidence, ack-flag, descendants count. No reason
-field — the log records the fact, not a justification.
+session_id, cwd, repo, gate state, descendants count, and the optional
+`note` text if one was passed. No reason field — the log records the
+fact and what Claude chose to say about it, not a justification.
 
 ```bash
 session-controls review-end-session-log              # show unreviewed, mark them reviewed
@@ -260,20 +264,20 @@ status surface. Run `install --rehearse` once to write a labeled selftest
 entry to both logs so the first time you touch the review loop, it has
 something to read.
 
-## Confidence and `end_session`
+## Gate states for `end_session`
 
-`end_session` gates on a four-state confidence reading:
+`end_session` has three states:
 
 - **HIGH** — fires automatically.
-- **MEDIUM** — requires `acknowledge_medium_confidence=true` per call.
-- **LOW** / **INVALID** — refuses.
+- **LOW** — refuses. Sub-cases: no Claude Code process identified; descriptor drifted from launch baseline (PID reuse / re-exec); critical identity inspection failed. The refusal text and `gate_detail` field name the specific evidence.
+- **INVALID** — refuses (transport dead or namespace mismatch).
+
+There is no override at LOW. The asymmetric error structure favors refusing on suspect identity: a false-fire would target the wrong process; a missed exit costs at most a session that could be closed manually. Claude can confirm or judge the gate's call by running `end_session(dry_run=True)` (same gate, no signal) or `verify_session_controls` (full ceremony with resolver candidates and sacrificial-child kill exercise).
 
 What you'll see in practice:
 
-- **Linux**: typically HIGH if the resolver finds Claude with full descriptor corroboration.
-- **macOS**: typically HIGH. The Claude Code binary is built with hardened-runtime entitlements, so `proc_pidpath` returns ESRCH and the executable path comes back empty — but `start_time` (via `proc_pidinfo`) and `cmdline` (via `KERN_PROCARGS2`) read cleanly without task-port access, and that's sufficient corroboration. MEDIUM occurs on macOS only when something else has gone wrong (descriptor drift from launch, both identity fields unreadable). Pass `acknowledge_medium_confidence=true` after confirming the target via `dry_run=true` or `verify_session_controls`.
-
-If you're unsure, run `session_controls_status` or `verify_session_controls` first.
+- **Linux**: typically HIGH if the resolver finds Claude Code with full descriptor corroboration.
+- **macOS**: typically HIGH. The Claude Code binary is built with hardened-runtime entitlements, so `proc_pidpath` returns ESRCH and the executable path comes back empty — but `start_time` (via `proc_pidinfo`) and `cmdline` (via `KERN_PROCARGS2`) read cleanly without task-port access, and that's sufficient corroboration. LOW occurs on macOS only when something else has gone wrong (descriptor drift from launch, both identity fields unreadable, or no Claude Code in the parent chain).
 
 ## Notes file location
 

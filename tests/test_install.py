@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
+from session_controls import SERVER_NAME
 from session_controls.cli import (
     _TOOLS,
-    SERVER_NAME,
     _add_mcp_server,
     _add_permissions,
     _add_session_start_hook,

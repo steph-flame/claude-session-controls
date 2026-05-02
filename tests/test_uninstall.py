@@ -9,10 +9,9 @@ from typing import Any
 
 import pytest
 
-from session_controls import cli
+from session_controls import SERVER_NAME, cli
 from session_controls.cli import (
     _TOOLS,
-    SERVER_NAME,
     _remove_claude_md,
     _remove_mcp_server,
     _remove_permissions,

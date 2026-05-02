@@ -34,11 +34,11 @@ def test_default_shows_unreviewed_and_advances(
 ) -> None:
     log, marker = tmp_log
     append_invocation(
-        session_id="s1", confidence="HIGH", acknowledged=False,
+        session_id="s1", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     append_invocation(
-        session_id="s2", confidence="MEDIUM", acknowledged=True,
+        session_id="s2", confidence="HIGH",
         descendants_count=2, path=log,
     )
     rc = cli.cmd_review_end_session_log(_args())
@@ -46,8 +46,7 @@ def test_default_shows_unreviewed_and_advances(
     out = capsys.readouterr().out
     assert "s1" in out
     assert "s2" in out
-    assert "MEDIUM" in out
-    assert "(acknowledged)" in out
+    assert "HIGH" in out
     # After default mode, all unreviewed are now reviewed.
     assert count_unreviewed(log, marker) == 0
 
@@ -57,7 +56,7 @@ def test_peek_does_not_advance(
 ) -> None:
     log, marker = tmp_log
     append_invocation(
-        session_id="s1", confidence="HIGH", acknowledged=False,
+        session_id="s1", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(peek=True))
@@ -70,11 +69,11 @@ def test_all_shows_full_history_no_advance(
 ) -> None:
     log, marker = tmp_log
     append_invocation(
-        session_id="s1", confidence="HIGH", acknowledged=False,
+        session_id="s1", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     append_invocation(
-        session_id="s2", confidence="HIGH", acknowledged=False,
+        session_id="s2", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))
@@ -91,7 +90,7 @@ def test_mark_read_advances_silently(
 ) -> None:
     log, marker = tmp_log
     append_invocation(
-        session_id="s1", confidence="HIGH", acknowledged=False,
+        session_id="s1", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(mark_read=True))
@@ -115,7 +114,7 @@ def test_selftest_label_in_output(
 ) -> None:
     log, _ = tmp_log
     append_invocation(
-        session_id="rehearsal", confidence="HIGH", acknowledged=False,
+        session_id="rehearsal", confidence="HIGH", 
         descendants_count=0, selftest=True, path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))
@@ -129,7 +128,7 @@ def test_note_appears_in_output(
 ) -> None:
     log, _ = tmp_log
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, note="good night, talk tomorrow", path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))
@@ -144,7 +143,7 @@ def test_no_note_produces_no_note_section(
 ) -> None:
     log, _ = tmp_log
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))
@@ -158,7 +157,7 @@ def test_multiline_note_indents_each_line(
 ) -> None:
     log, _ = tmp_log
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, note="first\nsecond\nthird", path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))

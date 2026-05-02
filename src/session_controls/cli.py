@@ -41,6 +41,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from . import SERVER_NAME, TOOL_NAMES
 from .ceremony import run_ceremony
 from .end_session_log import (
     EndSessionLogSummary,
@@ -250,9 +251,8 @@ def _print_invocation(inv: Invocation, *, index: tuple[int, int] | None = None) 
     prefix = f"[{index[0]}/{index[1]}] " if index else ""
     sid = f" [{inv.session_id}]" if inv.session_id else ""
     confidence = inv.confidence or "?"
-    ack = " (acknowledged)" if inv.acknowledged else ""
     selftest = " [SELFTEST]" if inv.selftest else ""
-    print(f"{prefix}{inv.timestamp.isoformat()}{sid} {confidence}{ack}{selftest}")
+    print(f"{prefix}{inv.timestamp.isoformat()}{sid} {confidence}{selftest}")
     print(f"  cwd:  {inv.cwd or '-'}")
     print(f"  repo: {inv.repo or '-'}")
     print(f"  descendants at exit: {inv.descendants_count}")
@@ -304,15 +304,8 @@ def cmd_review_end_session_log(args: argparse.Namespace) -> int:
 
 # --- install ---------------------------------------------------------------
 
-_TOOLS = [
-    "mcp__session-controls__end_session",
-    "mcp__session-controls__session_controls_status",
-    "mcp__session-controls__verify_session_controls",
-    "mcp__session-controls__leave_note",
-    "mcp__session-controls__recent_notes",
-    "mcp__session-controls__recent_end_sessions",
-]
-SERVER_NAME = "session-controls"
+# Backward-compat alias for code (and tests) that imported `_TOOLS` directly.
+_TOOLS = list(TOOL_NAMES)
 
 
 def _resolve_executable() -> tuple[str, list[str]]:
@@ -1051,7 +1044,6 @@ def _run_rehearse() -> None:
     log_path = append_invocation(
         session_id="rehearsal",
         confidence="HIGH",
-        acknowledged=False,
         descendants_count=0,
         selftest=True,
     )
@@ -1222,7 +1214,7 @@ def _perform_verify(*, quiet: bool) -> bool:
         report.error is None
         and report.sacrificial_terminated
         and report.discovery.chosen_pid is not None
-        and confidence in (Confidence.HIGH, Confidence.MEDIUM)
+        and confidence is Confidence.HIGH
     )
 
     state: JSONDict = {

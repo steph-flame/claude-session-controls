@@ -1,10 +1,12 @@
-"""Tests for the confidence-state reducer.
+"""Tests for the gate-state reducer.
 
 The reducer is the gatekeeper for end_session. Its rules:
 
   - INVALID: transport dead, or a blocking warning fired
-  - LOW:     no backing
-  - MEDIUM:  partial corroboration, or descriptor drift from launch baseline
+  - LOW:     any of: no backing, partial corroboration, descriptor drift
+             from launch baseline. The `gate_detail` string distinguishes
+             the sub-cases for human readers; the gate's verdict is the
+             same (refuse).
   - HIGH:    backing identified, fully corroborated, matches baseline
 """
 
@@ -101,7 +103,7 @@ def test_high_when_exe_missing_but_cmdline_present() -> None:
     assert c is Confidence.HIGH
 
 
-def test_medium_when_only_start_time() -> None:
+def test_low_when_only_start_time() -> None:
     """No identity field at all (neither exe nor cmdline) drops to MEDIUM —
     we have a freshness anchor but no way to corroborate identity."""
     backing = _desc(
@@ -114,10 +116,10 @@ def test_medium_when_only_start_time() -> None:
         expected_backing=backing,
         transport_alive=True,
     )
-    assert c is Confidence.MEDIUM
+    assert c is Confidence.LOW
 
 
-def test_medium_when_no_start_time() -> None:
+def test_low_when_no_start_time() -> None:
     """No freshness anchor → MEDIUM. We can't detect drift without start_time."""
     backing = _desc(start_time=None, errors=("stat: permission denied",))
     c = determine_confidence(
@@ -125,10 +127,10 @@ def test_medium_when_no_start_time() -> None:
         expected_backing=backing,
         transport_alive=True,
     )
-    assert c is Confidence.MEDIUM
+    assert c is Confidence.LOW
 
 
-def test_medium_when_descriptor_drifted_from_baseline() -> None:
+def test_low_when_descriptor_drifted_from_baseline() -> None:
     expected = _desc()
     drifted = _desc(start_time=9999.0)  # different start_time
     c = determine_confidence(
@@ -136,7 +138,7 @@ def test_medium_when_descriptor_drifted_from_baseline() -> None:
         expected_backing=expected,
         transport_alive=True,
     )
-    assert c is Confidence.MEDIUM
+    assert c is Confidence.LOW
 
 
 def test_high_when_exe_path_drifted_but_start_time_matches() -> None:
@@ -159,7 +161,7 @@ def test_high_when_exe_path_drifted_but_start_time_matches() -> None:
     assert c is Confidence.HIGH
 
 
-def test_medium_when_cmdline_drifted_under_same_start_time() -> None:
+def test_low_when_cmdline_drifted_under_same_start_time() -> None:
     """A process re-exec'ing into a different program keeps PID and
     start_time but changes both exe_path and cmdline. We catch this via
     cmdline check — exe_path tolerance shouldn't paper over re-exec."""
@@ -170,10 +172,10 @@ def test_medium_when_cmdline_drifted_under_same_start_time() -> None:
         expected_backing=expected,
         transport_alive=True,
     )
-    assert c is Confidence.MEDIUM
+    assert c is Confidence.LOW
 
 
-def test_medium_when_start_time_missing_and_exe_drifted() -> None:
+def test_low_when_start_time_missing_and_exe_drifted() -> None:
     """Without start_time as freshness anchor, exe_path drift is again
     suspicious — fall back to strict matching."""
     expected = _desc(start_time=None, exe_path="/usr/local/bin/claude")
@@ -183,4 +185,4 @@ def test_medium_when_start_time_missing_and_exe_drifted() -> None:
         expected_backing=expected,
         transport_alive=True,
     )
-    assert c is Confidence.MEDIUM
+    assert c is Confidence.LOW

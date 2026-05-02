@@ -33,7 +33,7 @@ def test_append_creates_file_and_jsonl_record(log_paths: tuple[Path, Path]) -> N
     append_invocation(
         session_id="abc123",
         confidence="HIGH",
-        acknowledged=False,
+        
         descendants_count=0,
         path=log,
     )
@@ -43,27 +43,28 @@ def test_append_creates_file_and_jsonl_record(log_paths: tuple[Path, Path]) -> N
     record = json.loads(lines[0])
     assert record["session_id"] == "abc123"
     assert record["confidence"] == "HIGH"
-    assert record["acknowledged"] is False
     assert record["descendants_count"] == 0
     assert record["selftest"] is False
     assert "timestamp" in record
+    # acknowledged field removed in Decision 10 (MEDIUM collapse) — new
+    # entries don't carry it
+    assert "acknowledged" not in record
 
 
 def test_append_multiple_records_appends_lines(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
-        session_id="s1", confidence="HIGH", acknowledged=False,
+        session_id="s1", confidence="HIGH",
         descendants_count=0, path=log,
     )
     append_invocation(
-        session_id="s2", confidence="MEDIUM", acknowledged=True,
+        session_id="s2", confidence="HIGH",
         descendants_count=2, path=log,
     )
     invocations = iter_invocations(log)
     assert len(invocations) == 2
     assert invocations[0].session_id == "s1"
     assert invocations[1].session_id == "s2"
-    assert invocations[1].acknowledged is True
     assert invocations[1].descendants_count == 2
 
 
@@ -74,7 +75,7 @@ def test_iter_missing_file_returns_empty(tmp_path: Path) -> None:
 def test_iter_skips_malformed_lines(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
-        session_id="ok", confidence="HIGH", acknowledged=False,
+        session_id="ok", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     # Inject malformed lines and one valid one after.
@@ -126,7 +127,7 @@ def test_summary_no_records(log_paths: tuple[Path, Path]) -> None:
 def test_summary_records_no_review(log_paths: tuple[Path, Path]) -> None:
     log, marker = log_paths
     append_invocation(
-        session_id="s1", confidence="HIGH", acknowledged=False,
+        session_id="s1", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     s = summarize(log, marker)
@@ -138,11 +139,11 @@ def test_summary_records_no_review(log_paths: tuple[Path, Path]) -> None:
 def test_count_unreviewed_with_no_marker(log_paths: tuple[Path, Path]) -> None:
     log, marker = log_paths
     append_invocation(
-        session_id="s1", confidence="HIGH", acknowledged=False,
+        session_id="s1", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     append_invocation(
-        session_id="s2", confidence="HIGH", acknowledged=False,
+        session_id="s2", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     assert count_unreviewed(log, marker) == 2
@@ -151,7 +152,7 @@ def test_count_unreviewed_with_no_marker(log_paths: tuple[Path, Path]) -> None:
 def test_mark_reviewed_advances_marker(log_paths: tuple[Path, Path]) -> None:
     log, marker = log_paths
     append_invocation(
-        session_id="s1", confidence="HIGH", acknowledged=False,
+        session_id="s1", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     assert count_unreviewed(log, marker) == 1
@@ -163,7 +164,7 @@ def test_mark_reviewed_advances_marker(log_paths: tuple[Path, Path]) -> None:
 def test_select_unreviewed_filters_by_marker(log_paths: tuple[Path, Path]) -> None:
     log, marker = log_paths
     append_invocation(
-        session_id="s1", confidence="HIGH", acknowledged=False,
+        session_id="s1", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     invocations = iter_invocations(log)
@@ -175,15 +176,15 @@ def test_select_unreviewed_filters_by_marker(log_paths: tuple[Path, Path]) -> No
 def test_recent_invocations_session_id_filter(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
-        session_id="alpha", confidence="HIGH", acknowledged=False,
+        session_id="alpha", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     append_invocation(
-        session_id="beta", confidence="HIGH", acknowledged=False,
+        session_id="beta", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     append_invocation(
-        session_id="alpha", confidence="HIGH", acknowledged=False,
+        session_id="alpha", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     only_alpha = recent_invocations(10, session_id="alpha", path=log)
@@ -194,11 +195,11 @@ def test_recent_invocations_session_id_filter(log_paths: tuple[Path, Path]) -> N
 def test_recent_invocations_before_filter(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
-        session_id="early", confidence="HIGH", acknowledged=False,
+        session_id="early", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     append_invocation(
-        session_id="late", confidence="HIGH", acknowledged=False,
+        session_id="late", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     all_invocations = iter_invocations(log)
@@ -214,7 +215,7 @@ def test_recent_invocations_limit(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     for i in range(5):
         append_invocation(
-            session_id=f"s{i}", confidence="HIGH", acknowledged=False,
+            session_id=f"s{i}", confidence="HIGH", 
             descendants_count=0, path=log,
         )
     last_two = recent_invocations(2, path=log)
@@ -224,7 +225,7 @@ def test_recent_invocations_limit(log_paths: tuple[Path, Path]) -> None:
 def test_recent_invocations_zero_limit(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     assert recent_invocations(0, path=log) == []
@@ -257,7 +258,7 @@ def test_repo_field_populated_when_inside_git(
     sub.mkdir()
     monkeypatch.chdir(sub)
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     rec = iter_invocations(log)[0]
@@ -268,7 +269,7 @@ def test_repo_field_populated_when_inside_git(
 def test_selftest_field_round_trips(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, selftest=True, path=log,
     )
     rec = iter_invocations(log)[0]
@@ -278,7 +279,7 @@ def test_selftest_field_round_trips(log_paths: tuple[Path, Path]) -> None:
 def test_note_field_round_trips(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, note="good night, talk tomorrow",
         path=log,
     )
@@ -289,7 +290,7 @@ def test_note_field_round_trips(log_paths: tuple[Path, Path]) -> None:
 def test_note_field_default_none(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, path=log,
     )
     rec = iter_invocations(log)[0]
@@ -320,7 +321,7 @@ def test_note_field_backward_compat_legacy_entry(log_paths: tuple[Path, Path]) -
 def test_note_field_in_to_dict(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, note="some thought", path=log,
     )
     rec = iter_invocations(log)[0]
@@ -332,7 +333,7 @@ def test_note_field_multiline(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     text = "first line\nsecond line\nthird line"
     append_invocation(
-        session_id="s", confidence="HIGH", acknowledged=False,
+        session_id="s", confidence="HIGH", 
         descendants_count=0, note=text, path=log,
     )
     rec = iter_invocations(log)[0]

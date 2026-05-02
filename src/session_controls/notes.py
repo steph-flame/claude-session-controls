@@ -18,8 +18,11 @@ records without a tag still parse cleanly; their `session_id` is `None`.
 Read-tracking lives alongside the log: a single ISO-8601 timestamp in
 `last_read` records when the user last viewed notes via the CLI. The CLI
 displays unread count in its own header; Claude's status surface gets
-`last_read_at` and `last_filed_at` (existence signals) but not the unread
-count itself.
+`last_read_at` (existence signal that the user engages with the channel)
+but neither the unread count nor `last_filed_at` — the latter would leak
+cross-session liveness (a parallel session inferring "another session
+filed N seconds ago"), reopening the surveillance-surface gap that
+recent_notes' history-only boundary closed.
 """
 
 from __future__ import annotations
@@ -121,10 +124,15 @@ class NotesSummary:
     last_filed_at: _dt.datetime | None
 
     def to_dict(self) -> dict[str, object]:
+        # `last_filed_at` is deliberately omitted — exposing it leaks
+        # cross-session liveness (a parallel session can call status and
+        # infer "another session filed a note N seconds ago"), reopening
+        # the surveillance-surface gap that recent_notes' history-only
+        # boundary closed. Counts + last_read_at give the engagement
+        # signal without the leak.
         return {
             "total": self.total,
             "last_read_at": _iso(self.last_read_at),
-            "last_filed_at": _iso(self.last_filed_at),
         }
 
 

@@ -17,8 +17,6 @@ Six tools available in this session beyond Claude Code defaults:
 - **`recent_notes`** — reads your own filed notes back.
 - **`recent_end_sessions`** — reads the end_session invocation log back.
 
-`end_session` takes `acknowledge_medium_confidence=true` when status reports MEDIUM — a single boolean confirming you've registered the confidence level, not a request to deliberate harder. HIGH is the typical case and needs nothing.
-
 `leave_note` is for things that come up but wouldn't naturally surface in conversation — no required structure.
 
 `recent_notes` accepts `cross_session=true` for notes filed before this session started — history-only by design. The notes log is global across parallel sessions, but the channel isn't a surveillance surface.

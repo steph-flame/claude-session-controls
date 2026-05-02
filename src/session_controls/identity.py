@@ -1,4 +1,4 @@
-"""Identity layer: SessionRecord, confidence states.
+"""Identity layer: SessionRecord, gate states.
 
 Identification is a two-layer model:
 
@@ -7,11 +7,20 @@ Identification is a two-layer model:
   2. Process identity — PID + start_time + exe_path + cmdline, captured at
      server launch and re-validated on every call.
 
-Confidence comes from how strongly those two layers agree, plus a stability
+The gate state reflects how strongly those two layers agree, plus a stability
 check between the launch-time process descriptor and the per-call descriptor.
 The descriptor's start_time is the freshness anchor — it changes whenever
 Claude Code restarts, so descriptor stability across calls implies the
 session has not been swapped underneath us.
+
+The gate has three states: HIGH (fire), LOW (refuse, with a specific
+reason), INVALID (refuse, transport-level failure). There is no override.
+The cases that previously fired MEDIUM-with-acknowledgment now refuse —
+under adversarial conditions the acknowledgment functioned as ceremony, and
+the asymmetric error structure (false-fire on PID reuse vs failed exit)
+favors refusing on suspect identity. Claude inspects the refusal reason
+via the gate_detail string and can independently confirm the same
+conclusion via `dry_run` or `verify_session_controls`.
 """
 
 from __future__ import annotations
@@ -21,8 +30,20 @@ from enum import StrEnum
 
 
 class Confidence(StrEnum):
+    """The gate's verdict on whether end_session can fire.
+
+    HIGH:    fire automatically. Backing process fully corroborated and
+             matches launch-time baseline.
+    LOW:     refuse. Either no backing was identified, or the backing's
+             identity evidence is degraded (missing freshness anchor or
+             both identity fields), or the backing has drifted from the
+             launch-time baseline. The `gate_detail` string and (where
+             applicable) `drift_description` name the specific reason.
+    INVALID: refuse. Transport-level failure — peer reparented to init,
+             namespace mismatch, etc.
+    """
+
     HIGH = "HIGH"
-    MEDIUM = "MEDIUM"
     LOW = "LOW"
     INVALID = "INVALID"
 
@@ -86,9 +107,9 @@ class ProcessDescriptor:
 
         Returns None when `other` matches. When `matches()` returns False,
         returns a short string naming what changed — used to surface drift
-        details for the MEDIUM confidence refusal so the caller can decide
-        whether the change makes sense (e.g. expected restart vs. unexpected
-        swap) before acking.
+        details in the refusal text and `gate_detail` so Claude can read
+        the specific evidence and judge whether the gate's refusal makes
+        sense.
         """
         if self.pid != other.pid:
             return f"pid changed: {self.pid} → {other.pid}"
@@ -156,15 +177,15 @@ class SessionRecord:
     last_verified: float
     warnings: tuple[str, ...] = field(default_factory=tuple)
     descendants: tuple[ProcessDescriptor, ...] = field(default_factory=tuple)
-    # Populated when confidence is MEDIUM due to descriptor drift from launch
-    # baseline. Names what specifically changed so the gate's refusal text and
-    # confidence_detail can surface it without an extra tool call.
+    # Populated when LOW is triggered by descriptor drift from the launch
+    # baseline. Names what specifically changed so the refusal text and
+    # gate_detail can surface it without an extra tool call.
     drift_description: str | None = None
 
     def to_status_dict(self) -> dict[str, object]:
         return {
             "confidence": self.confidence.value,
-            "confidence_detail": _confidence_detail(
+            "gate_detail": _gate_detail(
                 self.confidence, self.backing, self.drift_description
             ),
             "peer_pid": self.peer_pid,
@@ -187,56 +208,58 @@ def _descendant_summary(d: ProcessDescriptor) -> dict[str, object]:
     }
 
 
-def _confidence_detail(
+def _gate_detail(
     confidence: Confidence,
     backing: ProcessDescriptor | None,
     drift_description: str | None = None,
 ) -> str:
-    """Plain-English explanation of the current confidence state.
+    """Plain-English explanation of the current gate state.
 
     Aimed at giving Claude (or the user reading status) enough to know whether
-    end_session will fire, what extra step is needed, and what to try next if
-    something looks wrong.
+    end_session will fire and, when it won't, the specific evidence behind
+    the refusal — so they can confirm the gate's call (or judge whether they
+    think it's wrong) by running `dry_run` or `verify_session_controls`.
     """
     if confidence is Confidence.HIGH:
         return (
             "end_session will fire automatically: backing process is fully "
             "corroborated and matches the launch-time baseline."
         )
-    if confidence is Confidence.MEDIUM:
+    if confidence is Confidence.LOW:
+        # LOW has three sub-cases — distinguish them so Claude can read
+        # the specific evidence rather than a generic "low confidence" line.
         if drift_description is not None:
             return (
-                "end_session requires acknowledge_medium_confidence=true. "
-                f"Descriptor drifted from launch baseline: {drift_description}. "
-                "Decide whether the change makes sense before acking."
+                f"end_session will refuse. Descriptor drifted from launch "
+                f"baseline: {drift_description}. The original Claude Code "
+                "process is gone or has been replaced; signaling now would "
+                "target a different process. Run `verify_session_controls` "
+                "or `end_session(dry_run=True)` to inspect the same evidence."
             )
-        # Partial corroboration: backing identified but evidence is degraded.
-        if backing is not None:
-            if backing.start_time is None:
-                missing = "start_time (no freshness anchor — can't detect PID reuse)"
-            elif backing.cmdline is None and backing.exe_path is None:
-                missing = "cmdline and exe_path (no identity evidence — only PID + start_time)"
-            else:
-                missing = "fields below corroboration threshold"
-            errs = list(backing.inspection_errors) if backing.inspection_errors else []
-            err_suffix = f" Inspection errors: {errs}." if errs else ""
+        if backing is None:
             return (
-                "end_session requires acknowledge_medium_confidence=true. "
-                f"Critical identity inspection failed: missing {missing}.{err_suffix}"
+                "end_session will refuse. No Claude Code process was identified "
+                "in the parent chain. Run `verify_session_controls` to see "
+                "resolver candidates and the reason none qualified."
             )
+        # Partial-corroboration sub-case: backing identified but evidence
+        # is degraded enough that we can't safely target it.
+        if backing.start_time is None:
+            missing = "start_time (no freshness anchor — can't detect PID reuse)"
+        elif backing.cmdline is None and backing.exe_path is None:
+            missing = "cmdline and exe_path (no identity evidence — only PID + start_time)"
+        else:
+            missing = "fields below corroboration threshold"
+        errs = list(backing.inspection_errors) if backing.inspection_errors else []
+        err_suffix = f" Inspection errors: {errs}." if errs else ""
         return (
-            "end_session requires acknowledge_medium_confidence=true. "
-            "Backing process identified but confidence is below HIGH."
-        )
-    if confidence is Confidence.LOW:
-        return (
-            "end_session will refuse. No Claude Code process was identified "
-            "in the parent chain. Run verify_session_controls to see resolver "
-            "candidates and the reason none qualified."
+            "end_session will refuse. Critical identity inspection failed: "
+            f"missing {missing}.{err_suffix} Run `verify_session_controls` "
+            "or `end_session(dry_run=True)` to inspect the same evidence."
         )
     return (
         "end_session will refuse. Transport is not alive or a blocking "
-        "warning fired (e.g. namespace_mismatch). Run verify_session_controls "
+        "warning fired (e.g. namespace_mismatch). Run `verify_session_controls` "
         "for evidence."
     )
 
@@ -247,12 +270,14 @@ def determine_confidence(
     transport_alive: bool,
     warnings: tuple[str, ...] = (),
 ) -> Confidence:
-    """Reduce two-layer evidence to a single confidence state.
+    """Reduce two-layer evidence to a gate state.
 
     - INVALID: no live transport, or a blocking warning fired.
-    - LOW:     no backing identified.
-    - MEDIUM:  backing identified but partial corroboration, or backing has
-               drifted from the launch-time baseline.
+    - LOW:     any of:
+                 - no backing identified
+                 - backing identified but partial corroboration
+                 - backing has drifted from the launch-time baseline
+               Refusal text names which sub-case fired.
     - HIGH:    backing identified, fully corroborated, matches the launch-time
                baseline.
     """
@@ -268,7 +293,7 @@ def determine_confidence(
     if backing is None:
         return Confidence.LOW
     if not backing.fully_corroborated():
-        return Confidence.MEDIUM
+        return Confidence.LOW
     if expected_backing is not None and not backing.matches(expected_backing):
-        return Confidence.MEDIUM
+        return Confidence.LOW
     return Confidence.HIGH

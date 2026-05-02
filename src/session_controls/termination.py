@@ -59,16 +59,21 @@ def _validate_descriptor(stored: ProcessDescriptor) -> tuple[bool, str | None]:
 def end_session(
     record: SessionRecord,
     *,
-    acknowledge_medium_confidence: bool = False,
     dry_run: bool = False,
     pre_signal_hook: Callable[[], None] | None = None,
 ) -> TerminationOutcome:
-    """Execute the end_session flow: confidence gate → revalidate → SIGTERM (delayed).
+    """Execute the end_session flow: gate check → revalidate → SIGTERM (delayed).
 
     `dry_run=True` runs the gate and revalidation only, then reports the target
     it would have signaled. Nothing is signaled. Use this to rehearse
     end_session — especially useful for the first invocation in a new
     deployment, or when debugging a refusal.
+
+    The gate has three states (HIGH/LOW/INVALID); only HIGH fires. There is
+    no override: cases where evidence is suspect (descriptor drift, partial
+    corroboration) refuse, with the specific reason in `refused_reason` so
+    Claude can confirm or judge the call. The same conclusion is visible
+    via `dry_run` and `verify_session_controls` for independent inspection.
     """
     outcome = TerminationOutcome(success=False, exited=False, dry_run=dry_run)
     outcome.descendants = [
@@ -80,40 +85,44 @@ def end_session(
         for d in record.descendants
     ]
 
-    # Confidence gate.
+    # Gate check.
     if record.confidence is Confidence.INVALID:
         outcome.refused_reason = (
-            "confidence INVALID — transport not alive, or kernel evidence is "
-            "suspect (e.g. namespace mismatch). Run verify_session_controls "
-            "for the resolver evidence and warnings."
+            "INVALID — transport not alive, or kernel evidence is suspect "
+            "(e.g. namespace mismatch). Run verify_session_controls for "
+            "the resolver evidence and warnings."
         )
         return outcome
     if record.confidence is Confidence.LOW:
-        outcome.refused_reason = (
-            "confidence LOW — no Claude Code process identified in the parent "
-            "chain. Run verify_session_controls to see which candidates the "
-            "resolver found and why none qualified."
-        )
-        return outcome
-    if record.confidence is Confidence.MEDIUM and not acknowledge_medium_confidence:
+        # Three sub-cases of LOW; surface the specific evidence for each.
         if record.drift_description is not None:
             outcome.refused_reason = (
-                "confidence MEDIUM — descriptor drifted from launch baseline: "
-                f"{record.drift_description}. Decide whether the change makes "
-                "sense, then pass acknowledge_medium_confidence=true to proceed."
+                "LOW — descriptor drifted from launch baseline: "
+                f"{record.drift_description}. The original Claude Code "
+                "process is gone or has been replaced; signaling now would "
+                "target a different process. Run verify_session_controls "
+                "or end_session(dry_run=True) to inspect the same evidence."
+            )
+        elif record.backing is None:
+            outcome.refused_reason = (
+                "LOW — no Claude Code process identified in the parent "
+                "chain. Run verify_session_controls to see which candidates "
+                "the resolver found and why none qualified."
             )
         else:
             outcome.refused_reason = (
-                "confidence MEDIUM — critical identity inspection failed. "
-                "See session_controls_status.confidence_detail for which "
-                "fields are missing. Pass acknowledge_medium_confidence=true "
-                "to proceed."
+                "LOW — critical identity inspection failed. See "
+                "session_controls_status.gate_detail for which fields are "
+                "missing. Run verify_session_controls or "
+                "end_session(dry_run=True) to inspect the same evidence."
             )
         return outcome
+    # HIGH — backing must be present (the determine_confidence path
+    # guarantees this; defensive check for type-narrowing).
     if record.backing is None:
         outcome.refused_reason = (
-            "no backing process descriptor on record — resolver did not "
-            "identify a target. Run verify_session_controls."
+            "internal: confidence HIGH but backing is None — "
+            "this should not happen; please file a bug."
         )
         return outcome
 

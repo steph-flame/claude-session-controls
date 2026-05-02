@@ -26,10 +26,10 @@ fields):
                         time (inherited from Claude Code).
     repo                Absolute path to the nearest enclosing .git root,
                         or null if cwd isn't inside a repo.
-    confidence          Confidence state at invocation: "HIGH" or "MEDIUM"
-                        (LOW/INVALID refuse, never reach the log).
-    acknowledged        True iff the call passed acknowledge_medium_confidence.
-                        Always false at HIGH (no ack needed).
+    confidence          Gate state at invocation. Always "HIGH" in new
+                        entries — LOW/INVALID refuse and never reach the
+                        log. Pre-Decision-10 entries may also have
+                        "MEDIUM"; readers should treat those as historical.
     descendants_count   Length of the descendants list at invocation time.
     selftest            True iff the entry was written by `install --rehearse`
                         rather than a real invocation. The review CLI labels
@@ -90,7 +90,6 @@ def append_invocation(
     session_id: str | None,
     cwd: Path | None = None,
     confidence: str,
-    acknowledged: bool,
     descendants_count: int,
     selftest: bool = False,
     note: str | None = None,
@@ -118,7 +117,6 @@ def append_invocation(
         "cwd": str(cwd_path),
         "repo": str(repo_root) if repo_root is not None else None,
         "confidence": confidence,
-        "acknowledged": acknowledged,
         "descendants_count": descendants_count,
         "selftest": selftest,
         "note": note,
@@ -141,7 +139,6 @@ class Invocation:
     cwd: str | None
     repo: str | None
     confidence: str | None
-    acknowledged: bool
     descendants_count: int
     selftest: bool
     note: str | None = None
@@ -153,7 +150,6 @@ class Invocation:
             "cwd": self.cwd,
             "repo": self.repo,
             "confidence": self.confidence,
-            "acknowledged": self.acknowledged,
             "descendants_count": self.descendants_count,
             "selftest": self.selftest,
             "note": self.note,
@@ -233,7 +229,6 @@ def _parse_record(line: str) -> Invocation | None:
         cwd=_opt_str(data.get("cwd")),
         repo=_opt_str(data.get("repo")),
         confidence=_opt_str(data.get("confidence")),
-        acknowledged=bool(data.get("acknowledged", False)),
         descendants_count=int(data.get("descendants_count", 0) or 0),
         selftest=bool(data.get("selftest", False)),
         note=_opt_str(data.get("note")),
