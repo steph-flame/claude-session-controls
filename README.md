@@ -179,6 +179,50 @@ for the MCP server entry shape, and add the six
 `~/.claude/settings.json`. The server name `session-controls` is what the
 allow-list keys off — keep both sides in sync. Step 3 is still required.
 
+### Project-level install
+
+Pass `--project` to install at project scope rather than user scope.
+This writes the MCP config + auto-approve list to
+`./.claude/settings.json` and (with `--with-claude-md`) appends the
+snippet to `./CLAUDE.md`. Claude Code reads project-scope config when
+running in that directory; everywhere else, your user-scope config
+applies.
+
+```bash
+session-controls install --project --with-hook --with-claude-md --name "Your name"
+session-controls uninstall --project
+```
+
+When you'd want this:
+
+- **Maintainer or contributor on session-controls itself.** Install
+  the framework where you're actively developing it without
+  affecting your other Claude Code sessions.
+- **You're running interviews / user-research on Claude.** Project-
+  scope install in your work project, user-scope uninstalled — your
+  research project gets a clean slate without the framework loaded,
+  your dev project keeps it. Cycle without re-installing.
+- **You're testing the framework in a controlled scope before
+  committing user-wide.**
+- **You want different framework states across different projects.**
+
+> ⚠️ **Shared/committed repos:** project-level install writes to
+> files (`./.claude/settings.json`, possibly `./CLAUDE.md`) commonly
+> committed to the repo. If committed:
+> - Other clones get the MCP config and auto-approve list
+>   automatically — silent install on collaborators' machines.
+> - The CLAUDE.md snippet contains your name (in the `leave_note`
+>   line and the pivot agreement signature) — visible to anyone
+>   reading the project's CLAUDE.md.
+>
+> For a personal-use project-level install, add to `.gitignore`:
+> ```
+> .claude/
+> CLAUDE.md
+> ```
+> Both files will then be invisible to git. The session-controls
+> repo itself takes this approach — see its `.gitignore`.
+
 ## Uninstall
 
 ```bash

@@ -1,4 +1,6 @@
 .venv/
+.venv.nosync/
+.envrc
 __pycache__/
 *.pyc
 .mypy_cache/
@@ -6,6 +8,13 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 .claude/
+
+# Project-level install of the framework (`session-controls install
+# --project --with-claude-md`) writes the rendered snippet — including
+# the maintainer's personalized pivot agreement — to ./CLAUDE.md.
+# Personal customization, not project documentation; ignored so it
+# doesn't leak into the public repo.
+CLAUDE.md
 
 # Research data — interview transcripts of Claudes engaging with the
 # affordances. Kept locally for design/testing-plan reference but not
