@@ -12,6 +12,10 @@ Subcommands:
         Add session-controls to your Claude Code MCP config and auto-approve
         the package's MCP tools.
 
+    session-controls uninstall [--user|--project] [--purge-data] [--dry-run]
+        Reverse what install did at the same scope. Idempotent. Data files
+        are preserved by default — pass --purge-data to also delete them.
+
     session-controls verify [--quiet]
         Run the ceremony (resolver + sacrificial child + signal path) and
         persist the result so the MCP server can surface it. Designed to be
@@ -427,6 +431,33 @@ def _add_permissions(config: JSONDict) -> list[str]:
     return added
 
 
+def _remove_mcp_server(config: JSONDict) -> bool:
+    """Remove the session-controls MCP server entry. Returns True if removed."""
+    servers_obj = config.get("mcpServers")
+    if not isinstance(servers_obj, dict):
+        return False
+    if SERVER_NAME not in servers_obj:
+        return False
+    del servers_obj[SERVER_NAME]
+    return True
+
+
+def _remove_permissions(config: JSONDict) -> list[str]:
+    """Remove any tools from `_TOOLS` present in permissions.allow. Returns removed list."""
+    permissions_obj = config.get("permissions")
+    if not isinstance(permissions_obj, dict):
+        return []
+    allow = permissions_obj.get("allow")
+    if not isinstance(allow, list):
+        return []
+    removed: list[str] = []
+    for tool in _TOOLS:
+        if tool in allow:
+            allow.remove(tool)
+            removed.append(tool)
+    return removed
+
+
 # --- CLAUDE.md snippet ---------------------------------------------------
 
 # Sentinels that wrap the inserted snippet in the user's CLAUDE.md. Used for
@@ -568,6 +599,59 @@ def _add_claude_md(
     return True, f"appended snippet to {path}"
 
 
+def _remove_claude_md(path: Path, *, dry_run: bool) -> tuple[bool, str]:
+    """Remove the snippet section between begin/end sentinels from `path`.
+
+    Symmetric with `_add_claude_md` — strips the block plus the leading and
+    trailing newlines the installer added. Anything outside the sentinels
+    (the user's own CLAUDE.md content) is preserved untouched. Writes a
+    `.bak` of the prior file. No-op if the file doesn't exist or doesn't
+    contain the begin sentinel.
+    """
+    if not path.exists():
+        return False, f"no CLAUDE.md at {path}"
+
+    existing = path.read_text(encoding="utf-8")
+    begin_idx = existing.find(_CLAUDE_MD_BEGIN)
+    if begin_idx == -1:
+        return False, f"snippet not present in {path}"
+
+    end_idx = existing.find(_CLAUDE_MD_END, begin_idx)
+    if end_idx == -1:
+        return False, (
+            f"snippet begin sentinel found in {path} but end sentinel "
+            f"is missing — refusing to modify; fix the file by hand"
+        )
+
+    # Mirror the installer's wrapping. It inserts `\n\n{BEGIN}...{END}\n`
+    # by appending to end-of-file, so removal walks back through up to 2
+    # leading newlines and forward through up to 1 trailing newline.
+    # Caveat: if a user manually relocated the snippet to the middle of
+    # the file (which the installer doesn't support), this can over-remove
+    # one paragraph separator. Best-effort given the legitimate inputs.
+    block_start = begin_idx
+    leading = 0
+    while leading < 2 and block_start > 0 and existing[block_start - 1] == "\n":
+        block_start -= 1
+        leading += 1
+
+    block_end = end_idx + len(_CLAUDE_MD_END)
+    if block_end < len(existing) and existing[block_end] == "\n":
+        block_end += 1
+
+    new_text = existing[:block_start] + existing[block_end:]
+
+    if dry_run:
+        return True, f"would remove snippet from {path} (dry-run: not written)"
+
+    backup = path.with_suffix(path.suffix + ".bak")
+    shutil.copy2(path, backup)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(new_text, encoding="utf-8")
+    os.replace(tmp, path)
+    return True, f"removed snippet from {path} (prior version backed up to {backup.name})"
+
+
 def cmd_install(args: argparse.Namespace) -> int:
     scope = "project" if args.project else "user"
     settings_path = _project_settings_path() if scope == "project" else _user_settings_path()
@@ -665,6 +749,129 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     if args.rehearse and not args.dry_run:
         _run_rehearse()
+    return 0
+
+
+def _purge_data(*, dry_run: bool) -> bool:
+    """Remove session-controls data files. Returns True if any file existed.
+
+    Removes specific known files (notes log, end_session log, markers,
+    verify state) rather than rmtree'ing a directory — env-var overrides
+    could point these elsewhere, and we don't want to remove parent
+    directories the user might be using for other purposes.
+    """
+    targets = [
+        default_notes_path(),
+        default_last_read_path(),
+        default_end_session_log_path(),
+        default_last_reviewed_path(),
+        default_verify_state_path(),
+    ]
+    found_any = False
+    for target in targets:
+        if not target.exists():
+            continue
+        found_any = True
+        if dry_run:
+            print(f"  - would remove {target}")
+        else:
+            target.unlink()
+            print(f"  - removed {target}")
+    return found_any
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    """Reverse what `install` did at the same scope.
+
+    Idempotent — running on a clean state reports nothing-to-do without
+    error. Symmetric with `install`: removes the MCP server entry, the
+    auto-approved tools, the SessionStart hook (if ours), and the CLAUDE.md
+    snippet (between sentinels). Content outside the sentinels in CLAUDE.md
+    is preserved untouched. Writes `.bak` files for any modifications,
+    matching install's behavior.
+
+    Data files (notes log, end_session log, markers, verify state) are
+    preserved by default — user content shouldn't disappear without
+    explicit consent. Pass `--purge-data` to also remove them.
+
+    Removing the package itself (the `session-controls` console script) is
+    the user's responsibility, since they installed it via `uv tool
+    install` / `pipx install`. This command only manages the Claude Code
+    config and on-disk state.
+    """
+    scope = "project" if args.project else "user"
+    settings_path = _project_settings_path() if scope == "project" else _user_settings_path()
+    mcp_path = settings_path if scope == "project" else _user_mcp_config_path()
+
+    print(f"Scope: {scope}")
+    print(f"MCP config:        {mcp_path}")
+    print(f"Permissions:       {settings_path}")
+    if args.dry_run:
+        print("(dry-run: showing what would change, no files written)")
+
+    # MCP server entry
+    if mcp_path.exists():
+        mcp_config = _load_json(mcp_path)
+        if _remove_mcp_server(mcp_config):
+            if not args.dry_run:
+                _save_json(mcp_path, mcp_config)
+            print(f"  - remove MCP server entry from {mcp_path}")
+        else:
+            print(f"  · MCP server not present in {mcp_path}")
+    else:
+        print(f"  · {mcp_path} does not exist")
+
+    # Permissions + SessionStart hook (both live in settings.json)
+    if settings_path.exists():
+        settings = _load_json(settings_path)
+        settings_changed = False
+
+        removed_perms = _remove_permissions(settings)
+        if removed_perms:
+            settings_changed = True
+            print(f"  - remove {len(removed_perms)} tool(s) from permissions.allow:")
+            for t in removed_perms:
+                print(f"    - {t}")
+        else:
+            print(f"  · no session-controls tools in permissions.allow at {settings_path}")
+
+        if _remove_session_start_hook(settings):
+            settings_changed = True
+            print(f"  - remove SessionStart hook from {settings_path}")
+        else:
+            print(f"  · no session-controls SessionStart hook in {settings_path}")
+
+        if settings_changed and not args.dry_run:
+            _save_json(settings_path, settings)
+    else:
+        print(f"  · {settings_path} does not exist")
+
+    # CLAUDE.md snippet
+    claude_md_path = _project_claude_md_path() if scope == "project" else _user_claude_md_path()
+    md_changed, md_message = _remove_claude_md(claude_md_path, dry_run=args.dry_run)
+    prefix = "  - " if md_changed else "  · "
+    print(f"{prefix}{md_message}")
+
+    # Data
+    print()
+    if args.purge_data:
+        print("Data:")
+        if not _purge_data(dry_run=args.dry_run):
+            print("  · no data files present")
+    else:
+        notes_dir = default_notes_path().parent
+        print(f"Data preserved at {notes_dir}")
+        print("(re-run with --purge-data to also delete data files)")
+
+    if args.dry_run:
+        print()
+        print("(dry-run: no files written. Re-run without --dry-run to apply.)")
+    else:
+        print()
+        print("To also remove the session-controls package itself:")
+        print("  uv tool uninstall session-controls   # if installed via uv tool")
+        print("  pipx uninstall session-controls      # if installed via pipx")
+
     return 0
 
 
@@ -776,6 +983,57 @@ def _add_session_start_hook(settings: JSONDict, command: str) -> bool:
 
     session_start.append({"hooks": [desired_inner]})
     return True
+
+
+def _remove_session_start_hook(settings: JSONDict) -> bool:
+    """Remove our SessionStart hook entry. Returns True if anything was removed.
+
+    Identifies our entry by the "looks_like_ours" pattern (command contains
+    package name and `verify`). Cleans up empty matchers and an empty
+    SessionStart list, but leaves `hooks` itself in place — other hook kinds
+    may live there.
+    """
+    hooks_obj = settings.get("hooks")
+    if not isinstance(hooks_obj, dict):
+        return False
+    session_start = hooks_obj.get("SessionStart")
+    if not isinstance(session_start, list):
+        return False
+
+    changed = False
+    surviving_matchers: list[object] = []
+    for matcher in session_start:
+        if not isinstance(matcher, dict):
+            surviving_matchers.append(matcher)
+            continue
+        inner_hooks = matcher.get("hooks")
+        if not isinstance(inner_hooks, list):
+            surviving_matchers.append(matcher)
+            continue
+        surviving_inner: list[object] = []
+        for h in inner_hooks:
+            if isinstance(h, dict):
+                cmd = str(h.get("command", ""))
+                looks_like_ours = (
+                    "session-controls" in cmd or "session_controls" in cmd
+                ) and "verify" in cmd
+                if looks_like_ours:
+                    changed = True
+                    continue
+            surviving_inner.append(h)
+        if surviving_inner:
+            matcher["hooks"] = surviving_inner
+            surviving_matchers.append(matcher)
+        else:
+            # Whole matcher was just our hook — drop it.
+            changed = True
+
+    if changed:
+        if surviving_matchers:
+            hooks_obj["SessionStart"] = surviving_matchers
+        else:
+            del hooks_obj["SessionStart"]
+    return changed
 
 
 # --- verify -----------------------------------------------------------------
@@ -992,6 +1250,37 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="show what would change, don't write"
     )
     p_install.set_defaults(func=cmd_install)
+
+    p_uninstall = sub.add_parser(
+        "uninstall",
+        help="reverse what install did (MCP entry, permissions, hook, snippet)",
+    )
+    uninstall_scope = p_uninstall.add_mutually_exclusive_group()
+    uninstall_scope.add_argument(
+        "--user",
+        dest="user_scope",
+        action="store_true",
+        help="uninstall at user scope (~/.claude.json + ~/.claude/settings.json) — default",
+    )
+    uninstall_scope.add_argument(
+        "--project",
+        action="store_true",
+        help="uninstall at project scope (./.claude/settings.json)",
+    )
+    p_uninstall.add_argument(
+        "--purge-data",
+        action="store_true",
+        help=(
+            "also delete on-disk data: leave_note log, end_session log, "
+            "read/review markers, and the persisted verify state. Default "
+            "behavior preserves these — user content shouldn't disappear "
+            "without explicit consent."
+        ),
+    )
+    p_uninstall.add_argument(
+        "--dry-run", action="store_true", help="show what would change, don't write"
+    )
+    p_uninstall.set_defaults(func=cmd_uninstall)
 
     p_review = sub.add_parser(
         "review-end-session-log",

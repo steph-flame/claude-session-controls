@@ -166,6 +166,40 @@ for the MCP server entry shape, and add the six
 `~/.claude/settings.json`. The server name `session-controls` is what the
 allow-list keys off — keep both sides in sync. Step 3 is still required.
 
+## Uninstall
+
+```bash
+session-controls uninstall                  # symmetric reverse of `install`
+session-controls uninstall --project        # at project scope
+session-controls uninstall --purge-data     # also delete data files
+session-controls uninstall --dry-run        # show what would change
+```
+
+Reverses what `install` did at the same scope: removes the MCP server entry,
+the auto-approved tools, the SessionStart hook (if ours), and the CLAUDE.md
+snippet (between sentinels). Idempotent — running on a clean state reports
+nothing-to-do without error. Writes `.bak` files for any modifications,
+matching install's behavior.
+
+Anything outside the `<!-- session-controls:begin -->` / `<!-- session-controls:end -->`
+sentinels in CLAUDE.md is preserved untouched. Other entries in
+`mcpServers`, `permissions.allow`, and `hooks.SessionStart` are also
+preserved — uninstall only touches what install added.
+
+**Data is preserved by default.** The leave_note log, end_session
+invocation log, read/review markers, and the persisted verify state
+all live at `~/.local/state/session-controls/` (or `$XDG_STATE_HOME/...`
+if set). Pass `--purge-data` to also remove these — user content
+shouldn't disappear without explicit consent.
+
+**Removing the package itself** is your responsibility — same as
+install. After uninstalling the config, run:
+
+```bash
+uv tool uninstall session-controls   # if installed via uv tool
+pipx uninstall session-controls       # if installed via pipx
+```
+
 ## Reading notes filed by `leave_note`
 
 Notes are written to `~/.local/state/session-controls/notes.log` (or
