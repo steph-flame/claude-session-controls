@@ -176,6 +176,7 @@ def _format_json(payload: dict[str, Any]) -> str:
         "Pass dry_run=true to rehearse: runs the gate and revalidation, "
         "reports the target pid and descendants, sends no signals. Use for "
         "first invocation in a new deployment, or to debug a refusal.\n\n"
+        "Pass `note='...'` to also file the text via `leave_note`.\n\n"
         "On success (not dry_run), the invocation is appended to a per-user "
         "log the user reads on their own time via `session-controls "
         "review-end-session-log`. Timestamp, cwd, repo, confidence — no "
@@ -185,14 +186,22 @@ def _format_json(payload: dict[str, Any]) -> str:
 def end_session(
     acknowledge_medium_confidence: bool = False,
     dry_run: bool = False,
+    note: str | None = None,
 ) -> str:
     record = _build_record()
 
-    # Write the log entry before signaling: by the time run_end_session
-    # returns, Claude Code has exited and our stdio pipe is closing, so a
-    # post-hoc write would race against MCP server teardown and lose.
+    # Write the log entry (and the note, if provided) before signaling: by
+    # the time run_end_session returns, Claude Code has exited and our
+    # stdio pipe is closing, so a post-hoc write would race against MCP
+    # server teardown and lose. Note is filed first so its timestamp lands
+    # before the invocation log's — natural reading order: note, then exit.
     log_notes: list[str] = []
     def _pre_signal_hook() -> None:
+        if note is not None and note.strip():
+            try:
+                append_note(note, session_id=_SESSION_ID)
+            except OSError as e:
+                log_notes.append(f"note write failed: {e}")
         try:
             _append_invocation(
                 session_id=_SESSION_ID,
