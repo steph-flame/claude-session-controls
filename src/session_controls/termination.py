@@ -14,7 +14,6 @@ so a swapped/reused PID can't slip through.
 
 from __future__ import annotations
 
-import errno
 import os
 import signal
 import threading

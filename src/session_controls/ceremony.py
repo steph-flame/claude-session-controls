@@ -23,7 +23,8 @@ from dataclasses import dataclass
 from .identity import SessionRecord
 from .process_inspect import inspect, is_alive
 from .resolver import ResolverResult, resolve
-from .termination import POLL_INTERVAL_SECONDS
+
+POLL_INTERVAL_SECONDS = 0.1
 
 
 @dataclass
