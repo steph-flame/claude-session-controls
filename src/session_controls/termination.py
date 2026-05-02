@@ -86,6 +86,10 @@ def end_session(
     ]
 
     # Gate check.
+    # Refused-reason discipline (Decision 11): two sentences max — evidence,
+    # then recourse. Gate-state prefix kept for self-containedness (the
+    # response also carries `confidence`, but refused_reason is often read
+    # in isolation). No general-explanation sentences.
     if record.confidence is Confidence.INVALID:
         outcome.refused_reason = (
             "INVALID — transport not alive, or kernel evidence is suspect "
@@ -97,11 +101,9 @@ def end_session(
         # Three sub-cases of LOW; surface the specific evidence for each.
         if record.drift_description is not None:
             outcome.refused_reason = (
-                "LOW — descriptor drifted from launch baseline: "
-                f"{record.drift_description}. The original Claude Code "
-                "process is gone or has been replaced; signaling now would "
-                "target a different process. Run verify_session_controls "
-                "or end_session(dry_run=True) to inspect the same evidence."
+                f"LOW — descriptor drifted from launch baseline: "
+                f"{record.drift_description}. Inspect the same evidence "
+                "via verify_session_controls or end_session(dry_run=True)."
             )
         elif record.backing is None:
             outcome.refused_reason = (
@@ -111,10 +113,10 @@ def end_session(
             )
         else:
             outcome.refused_reason = (
-                "LOW — critical identity inspection failed. See "
-                "session_controls_status.gate_detail for which fields are "
-                "missing. Run verify_session_controls or "
-                "end_session(dry_run=True) to inspect the same evidence."
+                "LOW — critical identity inspection failed (see "
+                "session_controls_status.gate_detail for which fields "
+                "are missing). Inspect the same evidence via "
+                "verify_session_controls or end_session(dry_run=True)."
             )
         return outcome
     # HIGH — backing must be present (the determine_confidence path

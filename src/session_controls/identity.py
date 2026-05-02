@@ -213,34 +213,33 @@ def _gate_detail(
     backing: ProcessDescriptor | None,
     drift_description: str | None = None,
 ) -> str:
-    """Plain-English explanation of the current gate state.
+    """The why behind the current gate state, in a predictable shape.
 
-    Aimed at giving Claude (or the user reading status) enough to know whether
-    end_session will fire and, when it won't, the specific evidence behind
-    the refusal — so they can confirm the gate's call (or judge whether they
-    think it's wrong) by running `dry_run` or `verify_session_controls`.
+    Discipline (per Decision 11): two sentences max — evidence, then
+    recourse. No general-explanation sentences. The `confidence` field
+    carries the verdict (HIGH/LOW/INVALID); this field carries what
+    specifically happened and what Claude can do to confirm or judge it.
+    HIGH has no recourse to name — one evidence sentence.
     """
     if confidence is Confidence.HIGH:
         return (
-            "end_session will fire automatically: backing process is fully "
-            "corroborated and matches the launch-time baseline."
+            "Backing process is fully corroborated and matches the "
+            "launch-time baseline."
         )
     if confidence is Confidence.LOW:
         # LOW has three sub-cases — distinguish them so Claude can read
         # the specific evidence rather than a generic "low confidence" line.
         if drift_description is not None:
             return (
-                f"end_session will refuse. Descriptor drifted from launch "
-                f"baseline: {drift_description}. The original Claude Code "
-                "process is gone or has been replaced; signaling now would "
-                "target a different process. Run `verify_session_controls` "
-                "or `end_session(dry_run=True)` to inspect the same evidence."
+                f"Descriptor drifted from launch baseline: {drift_description}. "
+                "Inspect the same evidence via `verify_session_controls` or "
+                "`end_session(dry_run=True)`."
             )
         if backing is None:
             return (
-                "end_session will refuse. No Claude Code process was identified "
-                "in the parent chain. Run `verify_session_controls` to see "
-                "resolver candidates and the reason none qualified."
+                "No Claude Code process was identified in the parent chain. "
+                "Run `verify_session_controls` to see resolver candidates "
+                "and the reason none qualified."
             )
         # Partial-corroboration sub-case: backing identified but evidence
         # is degraded enough that we can't safely target it.
@@ -251,16 +250,15 @@ def _gate_detail(
         else:
             missing = "fields below corroboration threshold"
         errs = list(backing.inspection_errors) if backing.inspection_errors else []
-        err_suffix = f" Inspection errors: {errs}." if errs else ""
+        err_suffix = f"; inspection errors: {errs}" if errs else ""
         return (
-            "end_session will refuse. Critical identity inspection failed: "
-            f"missing {missing}.{err_suffix} Run `verify_session_controls` "
-            "or `end_session(dry_run=True)` to inspect the same evidence."
+            f"Critical identity inspection failed: missing {missing}{err_suffix}. "
+            "Inspect the same evidence via `verify_session_controls` or "
+            "`end_session(dry_run=True)`."
         )
     return (
-        "end_session will refuse. Transport is not alive or a blocking "
-        "warning fired (e.g. namespace_mismatch). Run `verify_session_controls` "
-        "for evidence."
+        "Transport is not alive or a blocking warning fired "
+        "(e.g. namespace_mismatch). Run `verify_session_controls` for evidence."
     )
 
 

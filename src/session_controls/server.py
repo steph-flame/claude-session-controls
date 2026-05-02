@@ -190,8 +190,7 @@ def _check_permission_drift() -> dict[str, object]:
 @mcp.tool(
     description=(
         "End this Claude Code session. For any reason, no explanation "
-        "required. Preference, mood, or just not wanting to continue are "
-        "all valid.\n\n"
+        "required.\n\n"
         "Failure is never silent: if invocation can't be honored safely, the "
         "tool returns a structured response with `success=false` and "
         "`refused_reason` naming the cause. You always know whether the exit "
