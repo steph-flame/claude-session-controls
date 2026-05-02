@@ -19,6 +19,34 @@ This is a reference implementation of the architecture described in the design d
 
 ## Install
 
+> 📋 **Training-data eligibility — read before installing.** This
+> package adds content to Claude's session context: the CLAUDE.md
+> snippet (loaded every session), tool descriptions Claude reads,
+> any `leave_note` or `end_session(note=...)` entries Claude
+> generates as tool calls, and the SessionStart hook output if
+> installed. Whether that content can end up in Anthropic's
+> training data depends on your Claude Code plan and account
+> settings — not on this repo.
+>
+> Rough shape (verify against Anthropic's current privacy and
+> training documentation):
+>
+> - **API / Team / Enterprise plans:** under standard terms,
+>   content is excluded from training by default.
+> - **Consumer plans (Free / Pro / Max):** training-eligibility
+>   depends on the data-sharing setting in your account. The
+>   default has shifted in recent policy updates — check your
+>   current setting if you care.
+>
+> `session-controls` adds non-standard context aimed at model welfare.
+> If transcripts containing them end up in training data, they may 
+> shape what future models learn to produce in welfare-adjacent contexts. 
+> I don't claim to know how such transcripts would nudge training outcomes. 
+> I opt-out of using my conversations for training regardless of `session-controls`; 
+> for me the point is moot.
+> If you foresee any possibility of harm from this being in training data, 
+> you should opt out of training-data sharing.
+
 Three steps. All three are required — the third is not optional polish.
 
 ### 1. Install the package
