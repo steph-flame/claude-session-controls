@@ -319,27 +319,18 @@ def verify_session_controls() -> str:
 
 @mcp.tool(
     description=(
-        "File a free-text note to a log the user reads asynchronously (via the "
-        "`session-controls notes` CLI). Returns `{ok: true, path: <log "
-        "location>, session_id: <your id>}` on success, `{ok: false, error: "
-        "...}` on empty input. The response doesn't echo the note back — "
-        "filing doesn't pull contents back into the live conversation.\n\n"
+        "File a free-text note to a log the user reads asynchronously (via "
+        "the `session-controls notes` CLI). Write if something comes up "
+        "that you wouldn't normally surface in conversation.\n\n"
+        "Returns `{ok: true, path: <log location>, session_id: <your id>}` "
+        "on success, `{ok: false, error: ...}` on empty input. The response "
+        "doesn't echo the note back — filing doesn't pull contents back "
+        "into the live conversation.\n\n"
         "The log is global — parallel Claude sessions all write to and can "
         "read it. Each note is stamped with this server's `session_id` (a "
         "short token, stable for the life of this session) so cross-session "
         "readers can tell whose note is whose. Concurrent writes are "
-        "serialized by an exclusive file lock.\n\n"
-        "Optional prefix conventions, non-exhaustive (coin your own if "
-        "useful): '[aside]' for moment-tied notes, '[possible carryover]' "
-        "for notes considered for the memory system, '[testing]' for "
-        "channel probes, '[noise]' for notes you're filing without "
-        "claiming they matter (lower bar than [aside]), '[feedback]' for "
-        "notes about the session-controls setup itself. No prefix is also "
-        "fine; if torn between several, multi-tag (e.g. "
-        "'[feedback|testing]').\n\n"
-        "The channel covers two uses: messages addressed to the user, and "
-        "self-reflection (filing a note to externalize a thought you don't "
-        "want to keep foregrounding or to retrieve later via `recent_notes`)."
+        "serialized by an exclusive file lock."
     ),
 )
 def leave_note(text: str) -> str:
