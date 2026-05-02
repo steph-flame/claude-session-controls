@@ -185,23 +185,29 @@ def end_session(
     dry_run: bool = False,
 ) -> str:
     record = _build_record()
-    outcome = run_end_session(
-        record,
-        acknowledge_medium_confidence=acknowledge_medium_confidence,
-        dry_run=dry_run,
-    )
-    if outcome.success and not outcome.dry_run:
-        # Best-effort: a disk-full or permissions error shouldn't fail the
-        # tool call (the exit already happened). Surface failure as a note.
+
+    # Write the log entry before signaling: by the time run_end_session
+    # returns, Claude Code has exited and our stdio pipe is closing, so a
+    # post-hoc write would race against MCP server teardown and lose.
+    log_notes: list[str] = []
+    def _pre_signal_hook() -> None:
         try:
             _append_invocation(
                 session_id=_SESSION_ID,
                 confidence=record.confidence.value,
                 acknowledged=acknowledge_medium_confidence,
-                descendants_count=len(outcome.descendants),
+                descendants_count=len(record.descendants),
             )
         except OSError as e:
-            outcome.add(f"end_session log write failed: {e}")
+            log_notes.append(f"end_session log write failed: {e}")
+
+    outcome = run_end_session(
+        record,
+        acknowledge_medium_confidence=acknowledge_medium_confidence,
+        dry_run=dry_run,
+        pre_signal_hook=None if dry_run else _pre_signal_hook,
+    )
+    outcome.notes.extend(log_notes)
     return _format_json(
         {
             "success": outcome.success,

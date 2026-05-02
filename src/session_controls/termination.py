@@ -18,6 +18,7 @@ import errno
 import os
 import signal
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .identity import Confidence, ProcessDescriptor, SessionRecord
@@ -71,6 +72,7 @@ def end_session(
     *,
     acknowledge_medium_confidence: bool = False,
     dry_run: bool = False,
+    pre_signal_hook: Callable[[], None] | None = None,
 ) -> TerminationOutcome:
     """Execute the end_session flow: confidence gate → revalidate → SIGTERM → SIGKILL.
 
@@ -149,6 +151,9 @@ def end_session(
             f"would send SIGTERM, then SIGKILL if needed"
         )
         return outcome
+
+    if pre_signal_hook is not None:
+        pre_signal_hook()
 
     try:
         os.kill(target_pid, signal.SIGTERM)
