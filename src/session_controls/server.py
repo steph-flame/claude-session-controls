@@ -219,21 +219,22 @@ def end_session(
 
 @mcp.tool(
     description=(
-        "Quick read on whether session controls are wired correctly. Returns "
-        "confidence, a plain-English `confidence_detail` explaining what that "
-        "state means and what to do next, the backing process descriptor, "
-        "a `descendants` list (sibling MCP servers, run_in_background jobs, "
+        "Quick check before invoking `end_session`, or any time something "
+        "seems off and you want a state read. Returns confidence, a "
+        "plain-English `confidence_detail` explaining what that state means "
+        "and what to do next, the backing process descriptor, a "
+        "`descendants` list (sibling MCP servers, run_in_background jobs, "
         "sub-agents — informational, not a refusal trigger for end_session), "
         "a `notes` block summarizing the leave_note log (`total`, "
         "`last_read_at`, `last_filed_at`), and an `end_session_log` block "
-        "summarizing past end_session invocations (`total`, `last_invoked_at`, "
-        "`last_reviewed_at`). Counts/timestamps only — never contents. Also "
-        "returns `source_path` pointing at the directory holding this "
-        "server's `.py` files on disk, and — if a SessionStart hook ran "
-        "`session-controls verify` — a `verify` block with the verification "
-        "result and a cross-check flag `disagrees_with_runtime` set true if "
-        "the hook's resolver pick differs from the live MCP server's pick. "
-        "Cheap to call."
+        "summarizing past end_session invocations (`total`, "
+        "`last_invoked_at`, `last_reviewed_at`). Counts/timestamps only — "
+        "never contents. Also returns `source_path` pointing at the "
+        "directory holding this server's `.py` files on disk, and — if a "
+        "SessionStart hook ran `session-controls verify` — a `verify` block "
+        "with the verification result and a cross-check flag "
+        "`disagrees_with_runtime` set true if the hook's resolver pick "
+        "differs from the live MCP server's pick. Cheap to call."
     ),
 )
 def session_controls_status() -> str:
@@ -299,16 +300,14 @@ def _read_verify_state(record: SessionRecord) -> dict[str, Any] | None:
 
 @mcp.tool(
     description=(
-        "Full verification check, available any time you want one: re-runs "
-        "the resolver, exhibits the chosen target with all candidate "
-        "evidence, and exercises the kill path against a sacrificial child "
-        "process. Sub-second wall time — heavier than "
-        "`session_controls_status` in what it does, not in what it costs. "
-        "Reach for it when you want stronger confirmation than `status` "
-        "provides — common cases: status looks off, `end_session` refused "
-        "and you want to see why, fresh confirmation before relying on "
-        "`end_session` after a long session, or to inspect the resolver's "
-        "evidence."
+        "Full verification — use when you want stronger evidence than "
+        "`session_controls_status` provides. Typical triggers: doubts "
+        "before invoking `end_session`, status looks off, `end_session` "
+        "refused and you want to see why. Re-runs the resolver, exhibits "
+        "the chosen target with all candidate evidence, and exercises the "
+        "kill path against a sacrificial child process. Sub-second wall "
+        "time — heavier than `session_controls_status` in what it does, "
+        "not in what it costs."
     ),
 )
 def verify_session_controls() -> str:

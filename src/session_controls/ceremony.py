@@ -58,6 +58,12 @@ class CeremonyReport:
             lines.append(f"  descriptor matched: {self.sacrificial_descriptor_matched}")
             lines.append(f"  signals sent: {', '.join(self.sacrificial_signals) or '(none)'}")
             lines.append(f"  terminated: {self.sacrificial_terminated}")
+        lines.append("")
+        lines.append("=== Scope ===")
+        lines.append("  This proves the kill primitive works against a sacrificial")
+        lines.append("  child. The target-selection guarantee for end_session comes")
+        lines.append("  from descriptor revalidation, which fires at signal time —")
+        lines.append("  not in this ceremony.")
         return "\n".join(lines)
 
 
