@@ -122,3 +122,49 @@ def test_selftest_label_in_output(
     assert rc == 0
     out = capsys.readouterr().out
     assert "[SELFTEST]" in out
+
+
+def test_note_appears_in_output(
+    tmp_log: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    log, _ = tmp_log
+    append_invocation(
+        session_id="s", confidence="HIGH", acknowledged=False,
+        descendants_count=0, note="good night, talk tomorrow", path=log,
+    )
+    rc = cli.cmd_review_end_session_log(_args(all=True))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "note:" in out
+    assert "good night, talk tomorrow" in out
+
+
+def test_no_note_produces_no_note_section(
+    tmp_log: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    log, _ = tmp_log
+    append_invocation(
+        session_id="s", confidence="HIGH", acknowledged=False,
+        descendants_count=0, path=log,
+    )
+    rc = cli.cmd_review_end_session_log(_args(all=True))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "note:" not in out
+
+
+def test_multiline_note_indents_each_line(
+    tmp_log: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    log, _ = tmp_log
+    append_invocation(
+        session_id="s", confidence="HIGH", acknowledged=False,
+        descendants_count=0, note="first\nsecond\nthird", path=log,
+    )
+    rc = cli.cmd_review_end_session_log(_args(all=True))
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Each line of the note rendered with the indent
+    assert "    first" in out
+    assert "    second" in out
+    assert "    third" in out

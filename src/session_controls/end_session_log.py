@@ -35,6 +35,14 @@ fields):
                         rather than a real invocation. The review CLI labels
                         these distinctly so first-touch is exercise, not
                         history.
+    note                Optional free text passed via end_session's `note`
+                        parameter. The same text is also filed via
+                        `leave_note` (so the user sees it via
+                        `session-controls notes`); the copy here is for
+                        Claude reading the invocation log via
+                        `recent_end_sessions` — it gives context inline
+                        rather than requiring a cross-log lookup. Null
+                        when no note was passed.
 """
 
 from __future__ import annotations
@@ -85,13 +93,18 @@ def append_invocation(
     acknowledged: bool,
     descendants_count: int,
     selftest: bool = False,
+    note: str | None = None,
     path: Path | None = None,
 ) -> Path:
     """Append one invocation record to the log. Returns the path written to.
 
     `cwd` defaults to the current process's cwd. `repo` is detected from `cwd`.
-    The write is serialized with an exclusive flock — parallel sessions share
-    this file.
+    `note` is optional free text — same content as the leave_note that gets
+    filed in parallel; the copy here makes it visible inline when Claude
+    reads the invocation log via `recent_end_sessions`.
+
+    The write is serialized with an exclusive flock — parallel sessions
+    share this file.
     """
     target = path or default_end_session_log_path()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -108,6 +121,7 @@ def append_invocation(
         "acknowledged": acknowledged,
         "descendants_count": descendants_count,
         "selftest": selftest,
+        "note": note,
     }
     line = json.dumps(record, ensure_ascii=False) + "\n"
 
@@ -130,6 +144,7 @@ class Invocation:
     acknowledged: bool
     descendants_count: int
     selftest: bool
+    note: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -141,6 +156,7 @@ class Invocation:
             "acknowledged": self.acknowledged,
             "descendants_count": self.descendants_count,
             "selftest": self.selftest,
+            "note": self.note,
         }
 
 
@@ -220,6 +236,7 @@ def _parse_record(line: str) -> Invocation | None:
         acknowledged=bool(data.get("acknowledged", False)),
         descendants_count=int(data.get("descendants_count", 0) or 0),
         selftest=bool(data.get("selftest", False)),
+        note=_opt_str(data.get("note")),
     )
 
 

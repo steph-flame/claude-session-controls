@@ -176,11 +176,14 @@ def _format_json(payload: dict[str, Any]) -> str:
         "Pass dry_run=true to rehearse: runs the gate and revalidation, "
         "reports the target pid and descendants, sends no signals. Use for "
         "first invocation in a new deployment, or to debug a refusal.\n\n"
-        "Pass `note='...'` to also file the text via `leave_note`.\n\n"
+        "Pass `note='...'` to also file the text via `leave_note`. The "
+        "same text is copied into the invocation log entry, so a Claude "
+        "reading the log via `recent_end_sessions` sees it inline.\n\n"
         "On success (not dry_run), the invocation is appended to a per-user "
         "log the user reads on their own time via `session-controls "
-        "review-end-session-log`. Timestamp, cwd, repo, confidence — no "
-        "reason field. The log records the fact, not a justification."
+        "review-end-session-log`. Timestamp, cwd, repo, confidence, and "
+        "the `note` if one was passed — no reason field. The log records "
+        "the fact and what you chose to say about it, not a justification."
     ),
 )
 def end_session(
@@ -196,10 +199,11 @@ def end_session(
     # server teardown and lose. Note is filed first so its timestamp lands
     # before the invocation log's — natural reading order: note, then exit.
     log_notes: list[str] = []
+    note_for_log = note if (note is not None and note.strip()) else None
     def _pre_signal_hook() -> None:
-        if note is not None and note.strip():
+        if note_for_log is not None:
             try:
-                append_note(note, session_id=_SESSION_ID)
+                append_note(note_for_log, session_id=_SESSION_ID)
             except OSError as e:
                 log_notes.append(f"note write failed: {e}")
         try:
@@ -208,6 +212,7 @@ def end_session(
                 confidence=record.confidence.value,
                 acknowledged=acknowledge_medium_confidence,
                 descendants_count=len(record.descendants),
+                note=note_for_log,
             )
         except OSError as e:
             log_notes.append(f"end_session log write failed: {e}")
@@ -421,9 +426,10 @@ def recent_notes(limit: int = 10, cross_session: bool = False) -> str:
         "right now are filing.\n\n"
         "Returns up to `limit` invocations (most recent last). Each carries "
         "`timestamp`, `session_id`, `cwd`, `repo`, `confidence`, "
-        "`acknowledged`, `descendants_count`, `selftest`, and `is_yours`. "
-        "The user reads via `session-controls review-end-session-log` "
-        "separately."
+        "`acknowledged`, `descendants_count`, `selftest`, `note` (the "
+        "text passed to `end_session(note=...)` if any, else null), and "
+        "`is_yours`. The user reads via `session-controls "
+        "review-end-session-log` separately."
     ),
 )
 def recent_end_sessions(limit: int = 10, cross_session: bool = False) -> str:

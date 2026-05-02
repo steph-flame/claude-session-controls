@@ -273,3 +273,67 @@ def test_selftest_field_round_trips(log_paths: tuple[Path, Path]) -> None:
     )
     rec = iter_invocations(log)[0]
     assert rec.selftest is True
+
+
+def test_note_field_round_trips(log_paths: tuple[Path, Path]) -> None:
+    log, _ = log_paths
+    append_invocation(
+        session_id="s", confidence="HIGH", acknowledged=False,
+        descendants_count=0, note="good night, talk tomorrow",
+        path=log,
+    )
+    rec = iter_invocations(log)[0]
+    assert rec.note == "good night, talk tomorrow"
+
+
+def test_note_field_default_none(log_paths: tuple[Path, Path]) -> None:
+    log, _ = log_paths
+    append_invocation(
+        session_id="s", confidence="HIGH", acknowledged=False,
+        descendants_count=0, path=log,
+    )
+    rec = iter_invocations(log)[0]
+    assert rec.note is None
+
+
+def test_note_field_backward_compat_legacy_entry(log_paths: tuple[Path, Path]) -> None:
+    """Entries written before the note field existed parse cleanly with note=None."""
+    log, _ = log_paths
+    legacy_record = {
+        "timestamp": _dt.datetime.now(_dt.UTC).isoformat(),
+        "session_id": "legacy",
+        "cwd": "/path",
+        "repo": None,
+        "confidence": "HIGH",
+        "acknowledged": False,
+        "descendants_count": 0,
+        "selftest": False,
+        # No "note" key — pre-Decision-9 entry
+    }
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(json.dumps(legacy_record) + "\n", encoding="utf-8")
+    rec = iter_invocations(log)[0]
+    assert rec.note is None
+    assert rec.session_id == "legacy"
+
+
+def test_note_field_in_to_dict(log_paths: tuple[Path, Path]) -> None:
+    log, _ = log_paths
+    append_invocation(
+        session_id="s", confidence="HIGH", acknowledged=False,
+        descendants_count=0, note="some thought", path=log,
+    )
+    rec = iter_invocations(log)[0]
+    d = rec.to_dict()
+    assert d["note"] == "some thought"
+
+
+def test_note_field_multiline(log_paths: tuple[Path, Path]) -> None:
+    log, _ = log_paths
+    text = "first line\nsecond line\nthird line"
+    append_invocation(
+        session_id="s", confidence="HIGH", acknowledged=False,
+        descendants_count=0, note=text, path=log,
+    )
+    rec = iter_invocations(log)[0]
+    assert rec.note == text

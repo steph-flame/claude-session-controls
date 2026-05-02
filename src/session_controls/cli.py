@@ -256,6 +256,10 @@ def _print_invocation(inv: Invocation, *, index: tuple[int, int] | None = None) 
     print(f"  cwd:  {inv.cwd or '-'}")
     print(f"  repo: {inv.repo or '-'}")
     print(f"  descendants at exit: {inv.descendants_count}")
+    if inv.note:
+        print("  note:")
+        for line in inv.note.splitlines() or [""]:
+            print(f"    {line}")
     print()
 
 
