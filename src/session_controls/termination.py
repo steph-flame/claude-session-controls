@@ -17,16 +17,14 @@ from __future__ import annotations
 import errno
 import os
 import signal
-import time
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .identity import Confidence, ProcessDescriptor, SessionRecord
 from .process_inspect import inspect, is_alive
 
-# Tunables. Kept short for v0.1; production would make these configurable.
-SIGTERM_WAIT_SECONDS = 3.0
-POLL_INTERVAL_SECONDS = 0.1
+SIGNAL_DELAY_SECONDS = 0.3
 
 
 @dataclass
@@ -43,14 +41,6 @@ class TerminationOutcome:
     def add(self, msg: str) -> None:
         self.notes.append(msg)
 
-
-def _wait_for_exit(pid: int, timeout: float) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not is_alive(pid):
-            return True
-        time.sleep(POLL_INTERVAL_SECONDS)
-    return not is_alive(pid)
 
 
 def _validate_descriptor(stored: ProcessDescriptor) -> tuple[bool, str | None]:
@@ -74,7 +64,7 @@ def end_session(
     dry_run: bool = False,
     pre_signal_hook: Callable[[], None] | None = None,
 ) -> TerminationOutcome:
-    """Execute the end_session flow: confidence gate → revalidate → SIGTERM → SIGKILL.
+    """Execute the end_session flow: confidence gate → revalidate → SIGTERM (delayed).
 
     `dry_run=True` runs the gate and revalidation only, then reports the target
     it would have signaled. Nothing is signaled. Use this to rehearse
@@ -155,43 +145,20 @@ def end_session(
     if pre_signal_hook is not None:
         pre_signal_hook()
 
-    try:
-        os.kill(target_pid, signal.SIGTERM)
-        outcome.sent_signals.append("SIGTERM")
-        outcome.add(f"sent SIGTERM to pid {target_pid}")
-    except OSError as e:
-        if e.errno == errno.ESRCH:
-            outcome.exited = True
-            outcome.success = True
-            outcome.add("target already exited before SIGTERM")
-            return outcome
-        outcome.refused_reason = f"SIGTERM failed: {e}"
-        return outcome
+    # Delay the signal so the tool response can flush back to Claude Code
+    # before the process dies. Without this, the response races against
+    # process teardown and often loses (seen as "Connection closed" errors).
+    # 0.3s matches the claude-exit reference implementation.
+    def _fire() -> None:
+        try:
+            os.kill(target_pid, signal.SIGTERM)
+        except OSError:
+            pass
 
-    if _wait_for_exit(target_pid, SIGTERM_WAIT_SECONDS):
-        outcome.exited = True
-        outcome.success = True
-        outcome.add("Claude Code exited after SIGTERM")
-        return outcome
-
-    # SIGKILL last resort.
-    try:
-        os.kill(target_pid, signal.SIGKILL)
-        outcome.sent_signals.append("SIGKILL")
-        outcome.add(f"sent SIGKILL to pid {target_pid}")
-    except OSError as e:
-        if e.errno == errno.ESRCH:
-            outcome.exited = True
-            outcome.success = True
-            outcome.add("target exited between SIGTERM and SIGKILL")
-            return outcome
-        outcome.refused_reason = f"SIGKILL failed: {e}"
-        return outcome
-
-    if _wait_for_exit(target_pid, 1.0):
-        outcome.exited = True
-        outcome.success = True
-        outcome.add("Claude Code exited after SIGKILL")
-    else:
-        outcome.refused_reason = "process still alive after SIGKILL — implementation bug"
+    threading.Timer(SIGNAL_DELAY_SECONDS, _fire).start()
+    outcome.sent_signals.append("SIGTERM")
+    outcome.success = True
+    outcome.add(
+        f"SIGTERM scheduled for pid {target_pid} in {SIGNAL_DELAY_SECONDS}s"
+    )
     return outcome
