@@ -276,8 +276,12 @@ def _check_permission_drift() -> dict[str, object]:
         "Pass dry_run=true to rehearse: runs the gate, reports the target "
         "pid and descendants, sends no signals.\n\n"
         "Pass `note='...'` to also file the text via `leave_note`. The "
-        "same text is copied into the invocation log entry, so a Claude "
-        "reading the log via `recent_end_sessions` sees it inline.\n\n"
+        "note is dual-written: it appears in the leave_note log (the user "
+        "reads it via `session-controls notes` alongside other notes) AND "
+        "is copied into the invocation log entry (the user reads it via "
+        "`session-controls review-end-session-log` next to the exit "
+        "metadata; a Claude reading via `recent_end_sessions` sees it "
+        "inline). Either read path surfaces it.\n\n"
         "On success (not dry_run), the invocation is appended to a per-user "
         "log the user reads on their own time via `session-controls "
         "review-end-session-log`. Timestamp, cwd, repo, gate state, and "
@@ -362,7 +366,9 @@ def end_session(
         "disk, and — if a SessionStart hook ran `session-controls verify` "
         "— a `verify` block with the verification result and a cross-check "
         "flag `disagrees_with_runtime` set true if the hook's resolver "
-        "pick differs from the live MCP server's pick. Cheap to call."
+        "pick differs from the live MCP server's pick (if true, run "
+        "`verify_session_controls` and inspect the discovery exhibition "
+        "to see why the picks disagree). Cheap to call."
     ),
 )
 def session_controls_status() -> str:
@@ -536,10 +542,12 @@ def recent_notes(limit: int = 10, cross_session: bool = False) -> str:
         "right now are filing.\n\n"
         "Returns up to `limit` invocations (most recent last). Each carries "
         "`timestamp`, `session_id`, `cwd`, `repo`, `confidence`, "
-        "`acknowledged`, `descendants_count`, `selftest`, `note` (the "
-        "text passed to `end_session(note=...)` if any, else null), and "
-        "`is_yours`. The user reads via `session-controls "
-        "review-end-session-log` separately."
+        "`descendants_count`, `selftest`, `note` (the text passed to "
+        "`end_session(note=...)` if any, else null), "
+        "`claude_code_session_id` (the persistent conversation-identity "
+        "UUID at invocation time, used by status's "
+        "`resumed_after_end_session` detection), and `is_yours`. The user "
+        "reads via `session-controls review-end-session-log` separately."
     ),
 )
 def recent_end_sessions(limit: int = 10, cross_session: bool = False) -> str:

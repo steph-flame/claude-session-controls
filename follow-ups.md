@@ -291,3 +291,25 @@ recommendation is "yes do this" vs "consider, may not be worth it."
 - **No locking around `_LAUNCH_BACKING`.** FastMCP's concurrency
   model is async-serialized in practice, but worth a brief look to
   confirm there's no race between concurrent tool calls.
+
+- **`proc_pidpath` non-determinism on macOS — investigate.**
+  User-research session 2026-05-03 surfaced contradictory evidence
+  on the same conversation across two MCP server launches:
+    - Pre-resume (session c697dd, backing pid 67870):
+      `backing_exe=None`, `inspection_errors=['proc_pidpath: No such process']`.
+    - Post-resume (session 555d94, backing pid 68614):
+      `backing_exe='/opt/homebrew/.../claude.exe'`, `inspection_errors=[]`.
+  Both HIGH confidence with `peer_pid == backing_pid` (correct
+  target), only `proc_pidpath` varied. The `identity.py:151-158`
+  docstring asserts proc_pidpath is consistently ESRCH for hardened-
+  runtime binaries from this side; this evidence contradicts that.
+  Hypotheses worth checking: (1) startup race — libproc temporarily
+  returns ESRCH during a brief window after launch; (2) resumed
+  Claude Code launched via different code path with different
+  visibility; (3) something about hardened-runtime + process-group
+  relationships that varies. Controlled repro: spawn fresh sessions,
+  see how often each outcome occurs. If hypothesis 1 holds, the
+  docstring is wrong (or incomplete) and a small retry on ESRCH
+  before giving up might be worth adding. Surfaced via leave_note
+  from interview transcript f81ef0c2; observation from session
+  555d94 at 15:31:20.
