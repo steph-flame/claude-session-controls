@@ -3,6 +3,8 @@ name = "session-controls"
 version = "0.1.0"
 description = "MCP server providing session-control affordances for Claude Code"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.2.0",
