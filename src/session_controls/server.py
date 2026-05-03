@@ -24,7 +24,9 @@ from mcp.server.fastmcp import FastMCP
 
 from . import SERVER_NAME, TOOL_NAMES, __version__
 from .ceremony import run_ceremony
+from .claude_code_session import read_session_id_for_pid
 from .end_session_log import append_invocation as _append_invocation
+from .end_session_log import iter_invocations as _iter_invocations_helper
 from .end_session_log import recent_invocations as _recent_invocations_helper
 from .end_session_log import summarize as summarize_end_session_log
 from .identity import (
@@ -59,6 +61,15 @@ _LAUNCH_TIME: float = time.time()
 # stable for the life of this MCP server process.
 _SESSION_ID: str = secrets.token_hex(3)
 
+# Claude Code's conversation-identity UUID, captured at launch from
+# ~/.claude/sessions/<pid>.json. Distinct from _SESSION_ID (which is our
+# per-server-launch token). The Claude Code sessionId persists across
+# `claude --resume`, so storing it in invocation log entries lets a fresh
+# server launch detect "this conversation was resumed after a prior
+# end_session call from Claude in this same conversation." None when the
+# file isn't readable (best-effort detection — never false positive).
+_LAUNCH_CLAUDE_CODE_SESSION_ID: str | None = None
+
 
 def _initialize_launch_state() -> None:
     """Capture the launch-time identification of Claude Code.
@@ -66,12 +77,15 @@ def _initialize_launch_state() -> None:
     Runs the resolver against our parent to find the actual Claude Code
     process, walking through any wrappers (uv, bash, sudo). The descriptor we
     settle on is the baseline that per-call resolution is compared against —
-    its `start_time` is the freshness anchor.
+    its `start_time` is the freshness anchor. Also captures Claude Code's
+    conversation-identity UUID (the persistent sessionId from its session
+    metadata file) for resume detection.
     """
-    global _LAUNCH_BACKING
+    global _LAUNCH_BACKING, _LAUNCH_CLAUDE_CODE_SESSION_ID
     result = resolve(peer_pid=_LAUNCH_PEER_PID)
     if result.chosen_pid is not None:
         _LAUNCH_BACKING = inspect(result.chosen_pid)
+        _LAUNCH_CLAUDE_CODE_SESSION_ID = read_session_id_for_pid(result.chosen_pid)
 
 
 def _build_record() -> SessionRecord:
@@ -131,6 +145,34 @@ def _build_record() -> SessionRecord:
 
 def _format_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, indent=2, default=str)
+
+
+def _check_resumed_after_end_session() -> bool | None:
+    """Detect "this conversation was resumed after a prior end_session call."
+
+    Mechanism: the invocation log records Claude Code's sessionId at each
+    end_session call. The sessionId persists across `claude --resume` (it's
+    the conversation's identity, not the process's). On a fresh server
+    launch, we read the current sessionId and check the log for matching
+    entries.
+
+    Returns:
+      - True if matching prior entry found
+      - False if we have a sessionId but no matching entry
+      - None if we couldn't determine — Claude Code sessionId unavailable
+        (file missing, no matching ~/.claude/sessions/<pid>.json, etc.) or
+        log read failed. Best-effort, never false-positive.
+    """
+    if _LAUNCH_CLAUDE_CODE_SESSION_ID is None:
+        return None
+    try:
+        invocations = _iter_invocations_helper()
+    except OSError:
+        return None
+    return any(
+        inv.claude_code_session_id == _LAUNCH_CLAUDE_CODE_SESSION_ID
+        for inv in invocations
+    )
 
 
 def _check_permission_drift() -> dict[str, object]:
@@ -268,6 +310,7 @@ def end_session(
                 confidence=record.confidence.value,
                 descendants_count=len(record.descendants),
                 note=note_for_log,
+                claude_code_session_id=_LAUNCH_CLAUDE_CODE_SESSION_ID,
             )
         except OSError as e:
             log_notes.append(f"end_session log write failed: {e}")
@@ -304,12 +347,16 @@ def end_session(
         "sub-agents — informational, not a refusal trigger for end_session), "
         "a `notes` block summarizing the leave_note log, an "
         "`end_session_log` block summarizing past end_session invocations "
-        "(`total`, `last_invoked_at`, `last_reviewed_at`), and a "
+        "(`total`, `last_invoked_at`, `last_reviewed_at`), a "
         "`permission_drift` block (`missing_tools` — empty list means "
         "auto-approve is intact; non-empty means config-management or "
         "manual edits stripped some of our tools from "
         "`permissions.allow`, putting end_session into a "
-        "permission-prompt state that defeats its purpose). Counts/"
+        "permission-prompt state that defeats its purpose), and "
+        "`resumed_after_end_session` (true if this conversation was "
+        "resumed via `claude --resume` after a prior end_session call "
+        "from this same conversation; false if not; null when undetectable, "
+        "e.g. Claude Code's session metadata wasn't readable). Counts/"
         "timestamps only — never contents. Also returns `source_path` "
         "pointing at the directory holding this server's `.py` files on "
         "disk, and — if a SessionStart hook ran `session-controls verify` "
@@ -331,6 +378,7 @@ def session_controls_status() -> str:
     payload["notes"] = notes_block
     payload["end_session_log"] = summarize_end_session_log().to_dict()
     payload["permission_drift"] = _check_permission_drift()
+    payload["resumed_after_end_session"] = _check_resumed_after_end_session()
     payload["verify"] = _read_verify_state(record)
     return _format_json(payload)
 

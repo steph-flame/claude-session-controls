@@ -338,3 +338,52 @@ def test_note_field_multiline(log_paths: tuple[Path, Path]) -> None:
     )
     rec = iter_invocations(log)[0]
     assert rec.note == text
+
+
+def test_claude_code_session_id_field_round_trips(log_paths: tuple[Path, Path]) -> None:
+    log, _ = log_paths
+    append_invocation(
+        session_id="s", confidence="HIGH", descendants_count=0,
+        claude_code_session_id="abc-123-def", path=log,
+    )
+    rec = iter_invocations(log)[0]
+    assert rec.claude_code_session_id == "abc-123-def"
+
+
+def test_claude_code_session_id_default_none(log_paths: tuple[Path, Path]) -> None:
+    log, _ = log_paths
+    append_invocation(
+        session_id="s", confidence="HIGH", descendants_count=0, path=log,
+    )
+    rec = iter_invocations(log)[0]
+    assert rec.claude_code_session_id is None
+
+
+def test_claude_code_session_id_backward_compat(log_paths: tuple[Path, Path]) -> None:
+    """Legacy entries (pre-Decision-13) without the field parse cleanly."""
+    log, _ = log_paths
+    legacy = {
+        "timestamp": _dt.datetime.now(_dt.UTC).isoformat(),
+        "session_id": "legacy",
+        "cwd": "/path",
+        "repo": None,
+        "confidence": "HIGH",
+        "descendants_count": 0,
+        "selftest": False,
+        # No claude_code_session_id key
+    }
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+    rec = iter_invocations(log)[0]
+    assert rec.claude_code_session_id is None
+    assert rec.session_id == "legacy"
+
+
+def test_claude_code_session_id_in_to_dict(log_paths: tuple[Path, Path]) -> None:
+    log, _ = log_paths
+    append_invocation(
+        session_id="s", confidence="HIGH", descendants_count=0,
+        claude_code_session_id="some-uuid", path=log,
+    )
+    d = iter_invocations(log)[0].to_dict()
+    assert d["claude_code_session_id"] == "some-uuid"

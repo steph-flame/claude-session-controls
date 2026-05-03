@@ -43,6 +43,15 @@ fields):
                         `recent_end_sessions` — it gives context inline
                         rather than requiring a cross-log lookup. Null
                         when no note was passed.
+    claude_code_session_id  Claude Code's conversation-identity UUID at
+                        invocation time (read from
+                        `~/.claude/sessions/<pid>.json`'s `sessionId`).
+                        Persists across `claude --resume`, so a fresh
+                        server launch can match against this field to
+                        detect "this conversation was resumed after a
+                        prior end_session call from Claude." Null when
+                        the file wasn't readable. Optional field, absent
+                        from pre-Decision-13 entries.
 """
 
 from __future__ import annotations
@@ -93,6 +102,7 @@ def append_invocation(
     descendants_count: int,
     selftest: bool = False,
     note: str | None = None,
+    claude_code_session_id: str | None = None,
     path: Path | None = None,
 ) -> Path:
     """Append one invocation record to the log. Returns the path written to.
@@ -120,6 +130,7 @@ def append_invocation(
         "descendants_count": descendants_count,
         "selftest": selftest,
         "note": note,
+        "claude_code_session_id": claude_code_session_id,
     }
     line = json.dumps(record, ensure_ascii=False) + "\n"
 
@@ -142,6 +153,7 @@ class Invocation:
     descendants_count: int
     selftest: bool
     note: str | None = None
+    claude_code_session_id: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -153,6 +165,7 @@ class Invocation:
             "descendants_count": self.descendants_count,
             "selftest": self.selftest,
             "note": self.note,
+            "claude_code_session_id": self.claude_code_session_id,
         }
 
 
@@ -232,6 +245,7 @@ def _parse_record(line: str) -> Invocation | None:
         descendants_count=int(data.get("descendants_count", 0) or 0),
         selftest=bool(data.get("selftest", False)),
         note=_opt_str(data.get("note")),
+        claude_code_session_id=_opt_str(data.get("claude_code_session_id")),
     )
 
 
