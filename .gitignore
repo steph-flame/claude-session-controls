@@ -23,3 +23,7 @@ CLAUDE.md
 # design notes via paraphrase or quote, not by distributing the
 # transcripts.
 interviews/
+
+# Maintainer working notes — internal backlog, design pass deliberations,
+# investigation notes. Kept locally as scratch space; not adopter-facing.
+follow-ups.md
