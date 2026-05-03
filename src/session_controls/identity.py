@@ -149,13 +149,29 @@ class ProcessDescriptor:
         at least one of `exe_path` or `cmdline` (identity evidence).
 
         We deliberately tolerate one field being unreadable. On macOS,
-        `proc_pidpath` returns ESRCH for binaries built with hardened-runtime
-        entitlements (which Claude Code is) even from the same uid — but
-        `KERN_PROCARGS2` (cmdline) and `proc_pidinfo(PIDTBSDINFO)` (start_time)
-        succeed without task-port access. cmdline + start_time is sufficient
-        corroboration for the cooperative-user threat model: argv-spoofing by
-        Claude Code itself isn't in scope, and PID reuse / process swap are
-        caught structurally by `start_time` mismatch in `matches()`.
+        `proc_pidpath` *often* returns ESRCH for Claude Code (which ships
+        with hardened-runtime entitlements: allow-jit,
+        allow-unsigned-executable-memory, disable-library-validation), even
+        from the same uid — but `KERN_PROCARGS2` (cmdline) and
+        `proc_pidinfo(PIDTBSDINFO)` (start_time) succeed without
+        task-port access. cmdline + start_time is sufficient corroboration
+        for the cooperative-user threat model: argv-spoofing by Claude Code
+        itself isn't in scope, and PID reuse / process swap are caught
+        structurally by `start_time` mismatch in `matches()`.
+
+        The "often" qualifier is intentional — the proc_pidpath behavior on
+        Claude Code isn't fully deterministic in practice. User-research
+        evidence on 2026-05-03 surfaced two sessions on the same conversation
+        where one returned ESRCH and the other returned the path
+        successfully (see `follow-ups.md` for the observation). The
+        entitlement is part of the cause but doesn't fully determine the
+        outcome; binary-replacement timing (kernel-tracked launch-inode no
+        longer matching the on-disk inode after a brew upgrade) is a
+        plausible additional factor, and there may be others
+        (launch-context, system state). Both outcomes (ESRCH and
+        successful read) are handled gracefully here — when proc_pidpath
+        succeeds, we use the path; when it fails, the cmdline+start_time
+        path still corroborates.
 
         `inspection_errors` are not separately gated — their effect is already
         reflected in the resulting fields being None. Asking the question
