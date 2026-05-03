@@ -34,7 +34,7 @@ def test_returns_direct_children(monkeypatch: pytest.MonkeyPatch) -> None:
         "200 100\n300 100\n",
     )
     result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
-    assert sorted(d.pid for d in result) == [200, 300]
+    assert sorted(d.descriptor.pid for d in result) == [200, 300]
 
 
 def test_returns_recursive_descendants(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -44,7 +44,7 @@ def test_returns_recursive_descendants(monkeypatch: pytest.MonkeyPatch) -> None:
         "200 100\n300 200\n400 300\n",
     )
     result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
-    assert sorted(d.pid for d in result) == [200, 300, 400]
+    assert sorted(d.descriptor.pid for d in result) == [200, 300, 400]
 
 
 def test_excludes_subtree_of_exclude_pid(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,7 +55,7 @@ def test_excludes_subtree_of_exclude_pid(monkeypatch: pytest.MonkeyPatch) -> Non
         "200 100\n300 100\n250 200\n",
     )
     result = process_inspect.list_descendants(target_pid=100, exclude_pid=200)
-    assert sorted(d.pid for d in result) == [300]
+    assert sorted(d.descriptor.pid for d in result) == [300]
 
 
 def test_excludes_deep_subtree(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,7 +66,7 @@ def test_excludes_deep_subtree(monkeypatch: pytest.MonkeyPatch) -> None:
         "200 100\n210 200\n220 210\n230 220\n300 100\n",
     )
     result = process_inspect.list_descendants(target_pid=100, exclude_pid=200)
-    assert sorted(d.pid for d in result) == [300]
+    assert sorted(d.descriptor.pid for d in result) == [300]
 
 
 def test_returns_empty_when_no_children(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -95,7 +95,7 @@ def test_handles_malformed_ps_lines(monkeypatch: pytest.MonkeyPatch) -> None:
         "200 100\nbogus line\n   \n300 100\nfoo bar\n",
     )
     result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
-    assert sorted(d.pid for d in result) == [200, 300]
+    assert sorted(d.descriptor.pid for d in result) == [200, 300]
 
 
 def test_filters_known_harness_processes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,7 +126,7 @@ def test_filters_known_harness_processes(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("session_controls.process_inspect.inspect", fake_inspect)
 
     result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
-    pids = [d.pid for d in result]
+    pids = [d.descriptor.pid for d in result]
     assert 200 not in pids  # caffeinate filtered
     assert 300 in pids  # dev-server preserved
 
@@ -147,4 +147,62 @@ def test_keeps_unrecognized_processes_with_unreadable_exe(
         ),
     )
     result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
-    assert [d.pid for d in result] == [200]
+    assert [d.descriptor.pid for d in result] == [200]
+
+
+def test_depth_direct_children_are_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_ps(monkeypatch, "200 100\n300 100\n")
+    result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
+    by_pid = {d.descriptor.pid: d for d in result}
+    assert by_pid[200].depth == 1
+    assert by_pid[300].depth == 1
+
+
+def test_depth_increases_with_hops(monkeypatch: pytest.MonkeyPatch) -> None:
+    """100 → 200 (depth=1) → 300 (depth=2) → 400 (depth=3)."""
+    _patch_ps(monkeypatch, "200 100\n300 200\n400 300\n")
+    result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
+    by_pid = {d.descriptor.pid: d for d in result}
+    assert by_pid[200].depth == 1
+    assert by_pid[300].depth == 2
+    assert by_pid[400].depth == 3
+
+
+def test_uptime_seconds_computed_from_start_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """uptime_seconds = time.time() - start_time when start_time is present."""
+    monkeypatch.setattr(
+        "session_controls.process_inspect.subprocess.check_output",
+        lambda *args, **kwargs: "200 100\n",
+    )
+    # Stub a known start_time at 1000 seconds ago.
+    fixed_now = 1_000_000.0
+    monkeypatch.setattr("session_controls.process_inspect.time.time", lambda: fixed_now)
+    monkeypatch.setattr(
+        "session_controls.process_inspect.inspect",
+        lambda pid: ProcessDescriptor(
+            pid=pid, start_time=fixed_now - 1000.0, exe_path="/usr/bin/foo",
+            cmdline=("foo",),
+        ),
+    )
+    result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
+    assert len(result) == 1
+    assert result[0].uptime_seconds == 1000.0
+
+
+def test_uptime_seconds_none_when_start_time_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_ps(monkeypatch, "200 100\n")
+    result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
+    assert result[0].uptime_seconds is None
+
+
+def test_to_dict_emits_new_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_ps(monkeypatch, "200 100\n")
+    result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
+    d = result[0].to_dict()
+    assert "depth" in d
+    assert "uptime_seconds" in d
+    assert d["depth"] == 1

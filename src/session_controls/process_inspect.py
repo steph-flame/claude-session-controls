@@ -21,9 +21,10 @@ import os
 import platform
 import struct
 import subprocess
+import time
 from collections.abc import Iterable
 
-from .identity import ProcessDescriptor
+from .identity import DescendantInfo, ProcessDescriptor
 
 # ----- Linux ---------------------------------------------------------------
 
@@ -371,7 +372,7 @@ def walk_ancestry(pid: int, max_depth: int = 32) -> Iterable[ProcessDescriptor]:
 _HARNESS_PROCESS_NAMES: frozenset[str] = frozenset({"caffeinate"})
 
 
-def list_descendants(target_pid: int, exclude_pid: int) -> list[ProcessDescriptor]:
+def list_descendants(target_pid: int, exclude_pid: int) -> list[DescendantInfo]:
     """Return descendants of `target_pid` (recursive), minus `exclude_pid`'s subtree
     and minus known-harness processes.
 
@@ -380,6 +381,13 @@ def list_descendants(target_pid: int, exclude_pid: int) -> list[ProcessDescripto
     `exclude_pid` is typically our own server PID: our subtree dies with the
     parent (stdio EOF) and our sacrificial children are short-lived, so they're
     noise rather than orphan candidates.
+
+    Each surviving descendant is wrapped in a `DescendantInfo` carrying its
+    `depth` (BFS hops from target — direct children are depth=1) and
+    `uptime_seconds` (time.time() − start_time, or None when start_time
+    wasn't readable). These let Claude attribute the descendant — direct
+    children spawned during the session look different from grandchildren
+    of long-running user-managed work.
 
     Known-harness filtering: processes spawned by Claude Code itself for its
     own purposes (e.g. `caffeinate` to prevent sleep on macOS) are dropped
@@ -420,22 +428,29 @@ def list_descendants(target_pid: int, exclude_pid: int) -> list[ProcessDescripto
         excluded.add(cur)
         stack.extend(children.get(cur, []))
 
-    pids: list[int] = []
-    seen: set[int] = set()
-    stack = list(children.get(target_pid, []))
-    while stack:
-        cur = stack.pop()
-        if cur in seen or cur in excluded:
+    # BFS from target_pid so we naturally accumulate hop-depth as we go.
+    depths: dict[int, int] = {}
+    queue: list[tuple[int, int]] = [(c, 1) for c in children.get(target_pid, [])]
+    while queue:
+        pid, depth = queue.pop(0)
+        if pid in depths or pid in excluded:
             continue
-        seen.add(cur)
-        pids.append(cur)
-        stack.extend(children.get(cur, []))
+        depths[pid] = depth
+        for c in children.get(pid, []):
+            queue.append((c, depth + 1))
 
-    descriptors = [inspect(p) for p in pids]
-    # Drop known-harness processes by exe basename. A descriptor whose
-    # exe_path is unreadable (None) stays visible — better to surface an
-    # ambiguous entry than to hide it on incomplete information.
-    return [d for d in descriptors if _basename_of(d.exe_path) not in _HARNESS_PROCESS_NAMES]
+    now = time.time()
+    results: list[DescendantInfo] = []
+    for pid, depth in depths.items():
+        descriptor = inspect(pid)
+        # Drop known-harness processes by exe basename. A descriptor whose
+        # exe_path is unreadable (None) stays visible — better to surface an
+        # ambiguous entry than to hide it on incomplete information.
+        if _basename_of(descriptor.exe_path) in _HARNESS_PROCESS_NAMES:
+            continue
+        uptime = (now - descriptor.start_time) if descriptor.start_time is not None else None
+        results.append(DescendantInfo(descriptor=descriptor, depth=depth, uptime_seconds=uptime))
+    return results
 
 
 def _basename_of(path: str | None) -> str:

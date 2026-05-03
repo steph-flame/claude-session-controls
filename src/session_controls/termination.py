@@ -77,14 +77,7 @@ def end_session(
     via `dry_run` and `verify_session_controls` for independent inspection.
     """
     outcome = TerminationOutcome(success=False, exited=False, dry_run=dry_run)
-    outcome.descendants = [
-        {
-            "pid": d.pid,
-            "exe": d.exe_path,
-            "cmdline": list(d.cmdline) if d.cmdline else [],
-        }
-        for d in record.descendants
-    ]
+    outcome.descendants = [d.to_dict() for d in record.descendants]
 
     # Gate check.
     # Refused-reason discipline (Decision 11): two sentences max — evidence,

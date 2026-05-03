@@ -27,7 +27,13 @@ from .ceremony import run_ceremony
 from .end_session_log import append_invocation as _append_invocation
 from .end_session_log import recent_invocations as _recent_invocations_helper
 from .end_session_log import summarize as summarize_end_session_log
-from .identity import Confidence, ProcessDescriptor, SessionRecord, determine_confidence
+from .identity import (
+    Confidence,
+    DescendantInfo,
+    ProcessDescriptor,
+    SessionRecord,
+    determine_confidence,
+)
 from .notes import append_note
 from .notes import recent_notes as _recent_notes_helper
 from .notes import summarize as summarize_notes
@@ -94,7 +100,7 @@ def _build_record() -> SessionRecord:
         warnings=tuple(warnings),
     )
 
-    descendants: tuple[ProcessDescriptor, ...] = ()
+    descendants: tuple[DescendantInfo, ...] = ()
     if backing is not None:
         descendants = tuple(list_descendants(backing.pid, exclude_pid=os.getpid()))
 
@@ -215,6 +221,12 @@ def _check_permission_drift() -> dict[str, object]:
         "naturally on stdio EOF when Claude Code exits. The list is there so "
         "you can mention any user-spawned long-running tasks (dev servers, "
         "background scripts) to the user before exit, in case those matter.\n\n"
+        "Each descendant carries `pid`, `exe`, `cmdline`, `depth` (BFS hops "
+        "from Claude Code; 1 = direct child like a sibling MCP server), and "
+        "`uptime_seconds` (how long the process has been running, or null if "
+        "start_time was unreadable). Long uptime relative to the session's "
+        "`created_at` is a soft signal that the process is user-managed work "
+        "that pre-dates the session.\n\n"
         "Attribution caveat: for entries you don't recognize, you can't "
         "always tell from inside whether they're user-spawned or harness-"
         "internal. When uncertain, mention the entry by name and let the user "

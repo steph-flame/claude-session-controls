@@ -166,6 +166,42 @@ class ProcessDescriptor:
         return self.cmdline is not None or self.exe_path is not None
 
 
+@dataclass(frozen=True)
+class DescendantInfo:
+    """Per-descendant info surfaced in status and end_session responses.
+
+    Bundles the ProcessDescriptor with structural and timing context that
+    helps Claude attribute the descendant. The two added signals over a
+    bare descriptor:
+
+    - `depth`: hops from the target process. Direct children of Claude Code
+      are depth=1 (typically sibling MCP servers, run_in_background bash
+      jobs); deeper descendants are usually grandchildren spawned by those.
+    - `uptime_seconds`: how long the process has been running. Long uptime
+      relative to the Claude Code session is a soft signal that the process
+      is user-managed work that pre-dates or outlives this session;
+      short uptime is consistent with sibling-spawn-during-session.
+
+    Combined with the descriptor's exe/cmdline, these let Claude make
+    better attribution calls without asking — distinguishing "the user's
+    30-minute load test" from "a sibling MCP server that started with the
+    session" without having to interrogate the user.
+    """
+
+    descriptor: ProcessDescriptor
+    depth: int
+    uptime_seconds: float | None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "pid": self.descriptor.pid,
+            "exe": self.descriptor.exe_path,
+            "cmdline": list(self.descriptor.cmdline) if self.descriptor.cmdline else [],
+            "depth": self.depth,
+            "uptime_seconds": self.uptime_seconds,
+        }
+
+
 @dataclass
 class SessionRecord:
     """The MCP server's stored identity for the Claude Code session it serves."""
@@ -176,7 +212,7 @@ class SessionRecord:
     confidence: Confidence
     last_verified: float
     warnings: tuple[str, ...] = field(default_factory=tuple)
-    descendants: tuple[ProcessDescriptor, ...] = field(default_factory=tuple)
+    descendants: tuple[DescendantInfo, ...] = field(default_factory=tuple)
     # Populated when LOW is triggered by descriptor drift from the launch
     # baseline. Names what specifically changed so the refusal text and
     # gate_detail can surface it without an extra tool call.
@@ -194,18 +230,10 @@ class SessionRecord:
             "backing_start_time": self.backing.start_time if self.backing else None,
             "inspection_errors": list(self.backing.inspection_errors) if self.backing else [],
             "warnings": list(self.warnings),
-            "descendants": [_descendant_summary(d) for d in self.descendants],
+            "descendants": [d.to_dict() for d in self.descendants],
             "created_at": self.created_at,
             "last_verified": self.last_verified,
         }
-
-
-def _descendant_summary(d: ProcessDescriptor) -> dict[str, object]:
-    return {
-        "pid": d.pid,
-        "exe": d.exe_path,
-        "cmdline": list(d.cmdline) if d.cmdline else [],
-    }
 
 
 def _gate_detail(
