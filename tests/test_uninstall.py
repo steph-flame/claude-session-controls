@@ -27,9 +27,15 @@ def _uninstall_args(**overrides: bool) -> argparse.Namespace:
 
 def _install_args(**overrides: object) -> argparse.Namespace:
     defaults: dict[str, object] = {
-        "project": False, "user_scope": False, "dry_run": False,
-        "with_hook": False, "with_claude_md": False, "name": None,
-        "without_pivot": False, "rehearse": False, "allow_unapproved": False,
+        "project": False,
+        "user_scope": False,
+        "dry_run": False,
+        "with_hook": False,
+        "with_claude_md": False,
+        "name": None,
+        "without_pivot": False,
+        "rehearse": False,
+        "allow_unapproved": False,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -63,9 +69,7 @@ def test_remove_mcp_server_no_mcp_servers_key() -> None:
 
 
 def test_remove_permissions_present() -> None:
-    config: dict[str, Any] = {
-        "permissions": {"allow": [_TOOLS[0], _TOOLS[1], "Bash(*:*)"]}
-    }
+    config: dict[str, Any] = {"permissions": {"allow": [_TOOLS[0], _TOOLS[1], "Bash(*:*)"]}}
     removed = _remove_permissions(config)
     assert set(removed) == {_TOOLS[0], _TOOLS[1]}
     assert config["permissions"]["allow"] == ["Bash(*:*)"]
@@ -173,9 +177,7 @@ def test_remove_claude_md_dry_run_does_not_write(tmp_path: Path) -> None:
 
 
 @pytest.fixture
-def tmp_install_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> dict[str, Path]:
+def tmp_install_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
     paths = {
         "settings": tmp_path / "settings.json",
         "mcp": tmp_path / "mcp.json",

@@ -376,9 +376,7 @@ def test_concurrent_appends_do_not_interleave(notes_paths: tuple[Path, Path]) ->
             # interleaving without the lock.
             append_note(f"{sid} #{i:02d}\n" + ("x" * 5000), session_id=sid, path=notes)
 
-    threads = [
-        threading.Thread(target=worker, args=(f"s{i}",)) for i in range(n_writers)
-    ]
+    threads = [threading.Thread(target=worker, args=(f"s{i}",)) for i in range(n_writers)]
     for t in threads:
         t.start()
     for t in threads:

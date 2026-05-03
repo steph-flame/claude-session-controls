@@ -42,7 +42,6 @@ class TerminationOutcome:
         self.notes.append(msg)
 
 
-
 def _validate_descriptor(stored: ProcessDescriptor) -> tuple[bool, str | None]:
     """Re-inspect the backing process and confirm it still matches the stored
     descriptor (PID, start_time, exe_path, cmdline)."""
@@ -160,7 +159,5 @@ def end_session(
     threading.Timer(SIGNAL_DELAY_SECONDS, _fire).start()
     outcome.sent_signals.append("SIGTERM")
     outcome.success = True
-    outcome.add(
-        f"SIGTERM scheduled for pid {target_pid} in {SIGNAL_DELAY_SECONDS}s"
-    )
+    outcome.add(f"SIGTERM scheduled for pid {target_pid} in {SIGNAL_DELAY_SECONDS}s")
     return outcome

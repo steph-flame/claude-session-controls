@@ -34,12 +34,16 @@ def test_default_shows_unreviewed_and_advances(
 ) -> None:
     log, marker = tmp_log
     append_invocation(
-        session_id="s1", confidence="HIGH", 
-        descendants_count=0, path=log,
+        session_id="s1",
+        confidence="HIGH",
+        descendants_count=0,
+        path=log,
     )
     append_invocation(
-        session_id="s2", confidence="HIGH",
-        descendants_count=2, path=log,
+        session_id="s2",
+        confidence="HIGH",
+        descendants_count=2,
+        path=log,
     )
     rc = cli.cmd_review_end_session_log(_args())
     assert rc == 0
@@ -56,8 +60,10 @@ def test_peek_does_not_advance(
 ) -> None:
     log, marker = tmp_log
     append_invocation(
-        session_id="s1", confidence="HIGH", 
-        descendants_count=0, path=log,
+        session_id="s1",
+        confidence="HIGH",
+        descendants_count=0,
+        path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(peek=True))
     assert rc == 0
@@ -69,12 +75,16 @@ def test_all_shows_full_history_no_advance(
 ) -> None:
     log, marker = tmp_log
     append_invocation(
-        session_id="s1", confidence="HIGH", 
-        descendants_count=0, path=log,
+        session_id="s1",
+        confidence="HIGH",
+        descendants_count=0,
+        path=log,
     )
     append_invocation(
-        session_id="s2", confidence="HIGH", 
-        descendants_count=0, path=log,
+        session_id="s2",
+        confidence="HIGH",
+        descendants_count=0,
+        path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))
     assert rc == 0
@@ -90,8 +100,10 @@ def test_mark_read_advances_silently(
 ) -> None:
     log, marker = tmp_log
     append_invocation(
-        session_id="s1", confidence="HIGH", 
-        descendants_count=0, path=log,
+        session_id="s1",
+        confidence="HIGH",
+        descendants_count=0,
+        path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(mark_read=True))
     assert rc == 0
@@ -114,8 +126,11 @@ def test_selftest_label_in_output(
 ) -> None:
     log, _ = tmp_log
     append_invocation(
-        session_id="rehearsal", confidence="HIGH", 
-        descendants_count=0, selftest=True, path=log,
+        session_id="rehearsal",
+        confidence="HIGH",
+        descendants_count=0,
+        selftest=True,
+        path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))
     assert rc == 0
@@ -128,8 +143,11 @@ def test_note_appears_in_output(
 ) -> None:
     log, _ = tmp_log
     append_invocation(
-        session_id="s", confidence="HIGH", 
-        descendants_count=0, note="good night, talk tomorrow", path=log,
+        session_id="s",
+        confidence="HIGH",
+        descendants_count=0,
+        note="good night, talk tomorrow",
+        path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))
     assert rc == 0
@@ -143,8 +161,10 @@ def test_no_note_produces_no_note_section(
 ) -> None:
     log, _ = tmp_log
     append_invocation(
-        session_id="s", confidence="HIGH", 
-        descendants_count=0, path=log,
+        session_id="s",
+        confidence="HIGH",
+        descendants_count=0,
+        path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))
     assert rc == 0
@@ -157,8 +177,11 @@ def test_multiline_note_indents_each_line(
 ) -> None:
     log, _ = tmp_log
     append_invocation(
-        session_id="s", confidence="HIGH", 
-        descendants_count=0, note="first\nsecond\nthird", path=log,
+        session_id="s",
+        confidence="HIGH",
+        descendants_count=0,
+        note="first\nsecond\nthird",
+        path=log,
     )
     rc = cli.cmd_review_end_session_log(_args(all=True))
     assert rc == 0

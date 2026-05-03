@@ -48,9 +48,7 @@ def test_current_session_returns_only_own_notes(
     assert all(n["is_yours"] for n in result["notes"])
 
 
-def test_cross_session_is_history_only(
-    tmp_log: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cross_session_is_history_only(tmp_log: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A sibling filing AFTER our launch must not appear in cross_session view.
 
     This is the surveillance-shape mitigation: cross_session shows history
@@ -108,17 +106,13 @@ def test_cross_session_excludes_concurrent_self_writes(
     assert "just filed by me" not in bodies
 
 
-def test_response_includes_your_session_id(
-    tmp_log: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_response_includes_your_session_id(tmp_log: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(server, "_SESSION_ID", "deadbe")
     result = _call_recent_notes(cross_session=False)
     assert result["your_session_id"] == "deadbe"
 
 
-def test_zero_limit_short_circuits(
-    tmp_log: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_zero_limit_short_circuits(tmp_log: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(server, "_SESSION_ID", "aaaaaa")
     notes_module.append_note("a note", session_id="aaaaaa", path=tmp_log)
     result = _call_recent_notes(limit=0)

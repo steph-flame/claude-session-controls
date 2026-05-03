@@ -113,9 +113,7 @@ class ProcessDescriptor:
         """
         if self.pid != other.pid:
             return f"pid changed: {self.pid} → {other.pid}"
-        have_both_start_times = (
-            self.start_time is not None and other.start_time is not None
-        )
+        have_both_start_times = self.start_time is not None and other.start_time is not None
         if have_both_start_times:
             assert self.start_time is not None and other.start_time is not None
             if abs(self.start_time - other.start_time) > 0.5:
@@ -237,9 +235,7 @@ class SessionRecord:
     def to_status_dict(self) -> dict[str, object]:
         return {
             "confidence": self.confidence.value,
-            "gate_detail": _gate_detail(
-                self.confidence, self.backing, self.drift_description
-            ),
+            "gate_detail": _gate_detail(self.confidence, self.backing, self.drift_description),
             "peer_pid": self.peer_pid,
             "backing_pid": self.backing.pid if self.backing else None,
             "backing_exe": self.backing.exe_path if self.backing else None,
@@ -266,10 +262,7 @@ def _gate_detail(
     HIGH has no recourse to name — one evidence sentence.
     """
     if confidence is Confidence.HIGH:
-        return (
-            "Backing process is fully corroborated and matches the "
-            "launch-time baseline."
-        )
+        return "Backing process is fully corroborated and matches the launch-time baseline."
     if confidence is Confidence.LOW:
         # LOW has three sub-cases — distinguish them so Claude can read
         # the specific evidence rather than a generic "low confidence" line.

@@ -240,9 +240,7 @@ def test_supervisor_warning_does_not_fire_when_claude_is_above_launchd(
         desc(50, exe="/bin/zsh", cmdline=("zsh",), ppid=1),
         desc(1, exe="/sbin/launchd", cmdline=("launchd",), ppid=0),
     ]
-    monkeypatch.setattr(
-        "session_controls.resolver.walk_ancestry", lambda _start_pid: iter(chain)
-    )
+    monkeypatch.setattr("session_controls.resolver.walk_ancestry", lambda _start_pid: iter(chain))
     # Force Linux-namespace check off
     monkeypatch.setattr("session_controls.resolver.platform.system", lambda: "Darwin")
 
@@ -260,9 +258,7 @@ def test_supervisor_warning_fires_when_claude_runs_under_launchd(
         desc(200, exe="/opt/homebrew/bin/uv", cmdline=("uv", "run"), ppid=100),
         desc(100, exe="/sbin/launchd", cmdline=("launchd",), ppid=0),
     ]
-    monkeypatch.setattr(
-        "session_controls.resolver.walk_ancestry", lambda _start_pid: iter(chain)
-    )
+    monkeypatch.setattr("session_controls.resolver.walk_ancestry", lambda _start_pid: iter(chain))
     monkeypatch.setattr("session_controls.resolver.platform.system", lambda: "Darwin")
 
     warnings = detect_environment_warnings(peer_pid=200)

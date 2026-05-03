@@ -113,9 +113,7 @@ def resolve(*, peer_pid: int | None) -> ResolverResult:
             cand(desc.pid).add(0, f"ancestor {desc.pid} ({name}): skipped (wrapper)")
             continue
         if _looks_like_claude(desc.exe_path, desc.cmdline):
-            cand(desc.pid).add(
-                3, f"ancestor {desc.pid}: argv/exe matches claude hint", hint=True
-            )
+            cand(desc.pid).add(3, f"ancestor {desc.pid}: argv/exe matches claude hint", hint=True)
         else:
             cand(desc.pid).add(1, f"ancestor {desc.pid} ({name}): plausible parent")
 

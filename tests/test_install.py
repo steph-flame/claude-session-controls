@@ -136,9 +136,7 @@ def test_add_session_start_hook_to_empty() -> None:
 
 def test_add_session_start_hook_idempotent() -> None:
     settings: dict[str, Any] = {
-        "hooks": {
-            "SessionStart": [{"hooks": [{"type": "command", "command": CMD_GLOBAL}]}]
-        }
+        "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": CMD_GLOBAL}]}]}
     }
     changed = _add_session_start_hook(settings, CMD_GLOBAL)
     assert not changed
@@ -150,9 +148,7 @@ def test_add_session_start_hook_migrates_stale_entry() -> None:
     checkout → uv tool install) updates the hook command in place rather
     than leaving the old absolute path lying around."""
     settings: dict[str, Any] = {
-        "hooks": {
-            "SessionStart": [{"hooks": [{"type": "command", "command": CMD_LOCAL}]}]
-        }
+        "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": CMD_LOCAL}]}]}
     }
     changed = _add_session_start_hook(settings, CMD_GLOBAL)
     assert changed
@@ -164,9 +160,7 @@ def test_add_session_start_hook_migrates_stale_entry() -> None:
 def test_add_session_start_hook_preserves_other_hooks() -> None:
     settings: dict[str, Any] = {
         "hooks": {
-            "SessionStart": [
-                {"hooks": [{"type": "command", "command": "echo hello"}]}
-            ],
+            "SessionStart": [{"hooks": [{"type": "command", "command": "echo hello"}]}],
             "PreToolUse": [{"matcher": "Bash"}],
         }
     }
@@ -174,11 +168,7 @@ def test_add_session_start_hook_preserves_other_hooks() -> None:
     assert changed
     # Both entries present (echo hello doesn't look like ours, so it's preserved)
     assert len(settings["hooks"]["SessionStart"]) == 2
-    commands = [
-        h["command"]
-        for entry in settings["hooks"]["SessionStart"]
-        for h in entry["hooks"]
-    ]
+    commands = [h["command"] for entry in settings["hooks"]["SessionStart"] for h in entry["hooks"]]
     assert "echo hello" in commands
     assert CMD_GLOBAL in commands
     # Unrelated hook category untouched
@@ -188,9 +178,7 @@ def test_add_session_start_hook_preserves_other_hooks() -> None:
 # --- _server_command tiers ----------------------------------------------
 
 
-def test_server_command_global_install(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_server_command_global_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Tier 1: console script lives outside any active venv → bare name."""
     fake_global_bin = tmp_path / "tool" / "bin"
     fake_global_bin.mkdir(parents=True)
@@ -206,9 +194,7 @@ def test_server_command_global_install(
     assert args == []
 
 
-def test_server_command_local_checkout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_server_command_local_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Tier 2: console script lives inside the active venv → absolute path."""
     venv = tmp_path / ".venv"
     bin_dir = venv / "bin"
@@ -257,7 +243,17 @@ def test_install_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.Monk
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=True, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
+    args = argparse.Namespace(
+        project=False,
+        user_scope=False,
+        dry_run=True,
+        with_hook=False,
+        with_claude_md=False,
+        name=None,
+        without_pivot=False,
+        rehearse=False,
+        allow_unapproved=False,
+    )
     rc = cli.cmd_install(args)
     assert rc == 0
     assert not (tmp_path / "settings.json").exists()
@@ -272,7 +268,17 @@ def test_install_writes_both_files(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
+    args = argparse.Namespace(
+        project=False,
+        user_scope=False,
+        dry_run=False,
+        with_hook=False,
+        with_claude_md=False,
+        name=None,
+        without_pivot=False,
+        rehearse=False,
+        allow_unapproved=False,
+    )
     rc = cli.cmd_install(args)
     assert rc == 0
     mcp_config = json.loads((tmp_path / "mcp.json").read_text())
@@ -292,17 +298,23 @@ def test_install_with_hook_writes_hook_entry(
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=True, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
+    args = argparse.Namespace(
+        project=False,
+        user_scope=False,
+        dry_run=False,
+        with_hook=True,
+        with_claude_md=False,
+        name=None,
+        without_pivot=False,
+        rehearse=False,
+        allow_unapproved=False,
+    )
     rc = cli.cmd_install(args)
     assert rc == 0
     settings = json.loads((tmp_path / "settings.json").read_text())
     assert "hooks" in settings
     assert "SessionStart" in settings["hooks"]
-    commands = [
-        h["command"]
-        for entry in settings["hooks"]["SessionStart"]
-        for h in entry["hooks"]
-    ]
+    commands = [h["command"] for entry in settings["hooks"]["SessionStart"] for h in entry["hooks"]]
     # The hook command depends on how this test is run (venv-local checkout
     # vs global install). Both shapes end with `verify --quiet`.
     assert any(c.endswith("verify --quiet") for c in commands)
@@ -319,7 +331,17 @@ def test_install_without_hook_does_not_add_hook(
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
+    args = argparse.Namespace(
+        project=False,
+        user_scope=False,
+        dry_run=False,
+        with_hook=False,
+        with_claude_md=False,
+        name=None,
+        without_pivot=False,
+        rehearse=False,
+        allow_unapproved=False,
+    )
     rc = cli.cmd_install(args)
     assert rc == 0
     settings = json.loads((tmp_path / "settings.json").read_text())
@@ -336,7 +358,17 @@ def test_install_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
     import argparse
 
-    args = argparse.Namespace(project=False, user_scope=False, dry_run=False, with_hook=False, with_claude_md=False, name=None, without_pivot=False, rehearse=False, allow_unapproved=False)
+    args = argparse.Namespace(
+        project=False,
+        user_scope=False,
+        dry_run=False,
+        with_hook=False,
+        with_claude_md=False,
+        name=None,
+        without_pivot=False,
+        rehearse=False,
+        allow_unapproved=False,
+    )
     cli.cmd_install(args)
     cli.cmd_install(args)
     settings = json.loads((tmp_path / "settings.json").read_text())

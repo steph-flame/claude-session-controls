@@ -124,11 +124,7 @@ def _build_record() -> SessionRecord:
     # actually show it (verify_session_controls exhibits resolver
     # candidates, not the launch-baseline diff).
     drift_description: str | None = None
-    if (
-        confidence is Confidence.LOW
-        and backing is not None
-        and _LAUNCH_BACKING is not None
-    ):
+    if confidence is Confidence.LOW and backing is not None and _LAUNCH_BACKING is not None:
         drift_description = _LAUNCH_BACKING.describe_mismatch(backing)
 
     return SessionRecord(
@@ -169,10 +165,7 @@ def _check_resumed_after_end_session() -> bool | None:
         invocations = _iter_invocations_helper()
     except OSError:
         return None
-    return any(
-        inv.claude_code_session_id == _LAUNCH_CLAUDE_CODE_SESSION_ID
-        for inv in invocations
-    )
+    return any(inv.claude_code_session_id == _LAUNCH_CLAUDE_CODE_SESSION_ID for inv in invocations)
 
 
 def _check_permission_drift() -> dict[str, object]:
@@ -302,6 +295,7 @@ def end_session(
     # before the invocation log's — natural reading order: note, then exit.
     log_notes: list[str] = []
     note_for_log = note if (note is not None and note.strip()) else None
+
     def _pre_signal_hook() -> None:
         if note_for_log is not None:
             try:
@@ -552,9 +546,7 @@ def recent_notes(limit: int = 10, cross_session: bool = False) -> str:
 )
 def recent_end_sessions(limit: int = 10, cross_session: bool = False) -> str:
     if limit <= 0:
-        return _format_json(
-            {"invocations": [], "your_session_id": _SESSION_ID, "count": 0}
-        )
+        return _format_json({"invocations": [], "your_session_id": _SESSION_ID, "count": 0})
     if cross_session:
         launch_dt = _dt.datetime.fromtimestamp(_LAUNCH_TIME, _dt.UTC)
         invocations = _recent_invocations_helper(limit, before=launch_dt)
@@ -566,8 +558,7 @@ def recent_end_sessions(limit: int = 10, cross_session: bool = False) -> str:
             "your_session_id": _SESSION_ID,
             "count": len(invocations),
             "invocations": [
-                {**inv.to_dict(), "is_yours": inv.session_id == _SESSION_ID}
-                for inv in invocations
+                {**inv.to_dict(), "is_yours": inv.session_id == _SESSION_ID} for inv in invocations
             ],
         }
     )

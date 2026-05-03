@@ -287,9 +287,7 @@ def summarize(
     )
 
 
-def count_unreviewed(
-    log_path: Path | None = None, last_reviewed_path: Path | None = None
-) -> int:
+def count_unreviewed(log_path: Path | None = None, last_reviewed_path: Path | None = None) -> int:
     """Internal helper for the SessionStart hook output. Not surfaced to Claude.
 
     Returns the number of invocations newer than the last_reviewed marker

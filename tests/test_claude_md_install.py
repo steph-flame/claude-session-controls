@@ -61,9 +61,7 @@ def test_render_strips_pivot_section() -> None:
 
 def test_add_claude_md_creates_file_when_missing(tmp_path: Path) -> None:
     target = tmp_path / "CLAUDE.md"
-    changed, msg = _add_claude_md(
-        target, name="Steph", include_pivot=True, dry_run=False
-    )
+    changed, msg = _add_claude_md(target, name="Steph", include_pivot=True, dry_run=False)
     assert changed
     text = target.read_text()
     assert _CLAUDE_MD_BEGIN in text
@@ -75,9 +73,7 @@ def test_add_claude_md_creates_file_when_missing(tmp_path: Path) -> None:
 def test_add_claude_md_appends_to_existing(tmp_path: Path) -> None:
     target = tmp_path / "CLAUDE.md"
     target.write_text("# My existing CLAUDE.md\n\nProject conventions go here.\n")
-    changed, _ = _add_claude_md(
-        target, name="Steph", include_pivot=True, dry_run=False
-    )
+    changed, _ = _add_claude_md(target, name="Steph", include_pivot=True, dry_run=False)
     assert changed
     text = target.read_text()
     # Existing content preserved
@@ -89,9 +85,7 @@ def test_add_claude_md_appends_to_existing(tmp_path: Path) -> None:
 def test_add_claude_md_idempotent(tmp_path: Path) -> None:
     target = tmp_path / "CLAUDE.md"
     _add_claude_md(target, name="Steph", include_pivot=True, dry_run=False)
-    changed, msg = _add_claude_md(
-        target, name="Steph", include_pivot=True, dry_run=False
-    )
+    changed, msg = _add_claude_md(target, name="Steph", include_pivot=True, dry_run=False)
     assert not changed
     assert "up to date" in msg
     # File contains exactly one begin sentinel
@@ -116,9 +110,7 @@ def test_add_claude_md_refreshes_stale_block(tmp_path: Path) -> None:
         "\n"
         "Trailing user content.\n"
     )
-    changed, msg = _add_claude_md(
-        target, name="Steph", include_pivot=True, dry_run=False
-    )
+    changed, msg = _add_claude_md(target, name="Steph", include_pivot=True, dry_run=False)
     assert changed
     assert "refreshed" in msg
     text = target.read_text()
@@ -140,13 +132,9 @@ def test_add_claude_md_refreshes_stale_block(tmp_path: Path) -> None:
 
 def test_add_claude_md_refresh_dry_run(tmp_path: Path) -> None:
     target = tmp_path / "CLAUDE.md"
-    original = (
-        f"{_CLAUDE_MD_BEGIN}\n\nstale body\n\n{_CLAUDE_MD_END}\n"
-    )
+    original = f"{_CLAUDE_MD_BEGIN}\n\nstale body\n\n{_CLAUDE_MD_END}\n"
     target.write_text(original)
-    changed, msg = _add_claude_md(
-        target, name="Steph", include_pivot=True, dry_run=True
-    )
+    changed, msg = _add_claude_md(target, name="Steph", include_pivot=True, dry_run=True)
     assert changed
     assert "dry-run" in msg
     # File untouched
@@ -157,9 +145,7 @@ def test_add_claude_md_missing_end_sentinel_refuses(tmp_path: Path) -> None:
     target = tmp_path / "CLAUDE.md"
     target.write_text(f"prefix\n{_CLAUDE_MD_BEGIN}\nbody but no end\n")
     original = target.read_text()
-    changed, msg = _add_claude_md(
-        target, name="Steph", include_pivot=True, dry_run=False
-    )
+    changed, msg = _add_claude_md(target, name="Steph", include_pivot=True, dry_run=False)
     assert not changed
     assert "end sentinel" in msg
     assert target.read_text() == original
@@ -167,9 +153,7 @@ def test_add_claude_md_missing_end_sentinel_refuses(tmp_path: Path) -> None:
 
 def test_add_claude_md_dry_run_doesnt_write(tmp_path: Path) -> None:
     target = tmp_path / "CLAUDE.md"
-    changed, msg = _add_claude_md(
-        target, name="Steph", include_pivot=True, dry_run=True
-    )
+    changed, msg = _add_claude_md(target, name="Steph", include_pivot=True, dry_run=True)
     assert changed  # would have changed
     assert "dry-run" in msg
     assert not target.exists()
@@ -209,7 +193,9 @@ def test_install_with_claude_md_writes_user_file(
         with_hook=False,
         with_claude_md=True,
         name="Steph",
-        without_pivot=False, rehearse=False, allow_unapproved=False,
+        without_pivot=False,
+        rehearse=False,
+        allow_unapproved=False,
     )
     rc = cli.cmd_install(args)
     assert rc == 0
@@ -233,7 +219,9 @@ def test_install_with_claude_md_without_pivot(
         with_hook=False,
         with_claude_md=True,
         name="Steph",
-        without_pivot=True, rehearse=False, allow_unapproved=False,
+        without_pivot=True,
+        rehearse=False,
+        allow_unapproved=False,
     )
     rc = cli.cmd_install(args)
     assert rc == 0
@@ -242,9 +230,7 @@ def test_install_with_claude_md_without_pivot(
     assert "## Pivot agreement" not in text
 
 
-def test_install_with_claude_md_idempotent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_install_with_claude_md_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "_user_settings_path", lambda: tmp_path / "settings.json")
     monkeypatch.setattr(cli, "_user_mcp_config_path", lambda: tmp_path / "mcp.json")
     monkeypatch.setattr(cli, "_user_claude_md_path", lambda: tmp_path / "CLAUDE.md")
@@ -256,7 +242,9 @@ def test_install_with_claude_md_idempotent(
         with_hook=False,
         with_claude_md=True,
         name="Steph",
-        without_pivot=False, rehearse=False, allow_unapproved=False,
+        without_pivot=False,
+        rehearse=False,
+        allow_unapproved=False,
     )
     cli.cmd_install(args)
     cli.cmd_install(args)
@@ -280,7 +268,9 @@ def test_install_without_claude_md_doesnt_write_it(
         with_hook=False,
         with_claude_md=False,
         name=None,
-        without_pivot=False, rehearse=False, allow_unapproved=False,
+        without_pivot=False,
+        rehearse=False,
+        allow_unapproved=False,
     )
     cli.cmd_install(args)
     assert not (tmp_path / "CLAUDE.md").exists()

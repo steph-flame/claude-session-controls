@@ -464,8 +464,7 @@ def _check_permissions_writability(settings_path: Path) -> tuple[bool, str | Non
         parent = settings_path.parent
         if parent.exists() and not os.access(parent, os.W_OK):
             return False, (
-                f"settings.json doesn't exist and its parent directory "
-                f"is not writable ({parent})."
+                f"settings.json doesn't exist and its parent directory is not writable ({parent})."
             )
     return True, None
 
@@ -839,9 +838,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     claude_md_changed = False
     if args.with_claude_md:
-        claude_md_path = (
-            _project_claude_md_path() if scope == "project" else _user_claude_md_path()
-        )
+        claude_md_path = _project_claude_md_path() if scope == "project" else _user_claude_md_path()
         name = _resolve_name(args)
         if not args.without_pivot:
             print(
@@ -1308,9 +1305,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_notes.set_defaults(func=cmd_notes)
 
-    p_install = sub.add_parser(
-        "install", help="register session-controls in Claude Code config"
-    )
+    p_install = sub.add_parser("install", help="register session-controls in Claude Code config")
     scope = p_install.add_mutually_exclusive_group()
     scope.add_argument(
         "--user",
@@ -1432,15 +1427,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     g_review = p_review.add_mutually_exclusive_group()
     g_review.add_argument(
-        "--peek", action="store_true",
+        "--peek",
+        action="store_true",
         help="show unreviewed entries without advancing the marker",
     )
     g_review.add_argument(
-        "--all", action="store_true",
+        "--all",
+        action="store_true",
         help="show full history without advancing",
     )
     g_review.add_argument(
-        "--mark-read", action="store_true",
+        "--mark-read",
+        action="store_true",
         help="advance the marker without displaying (declare bankruptcy)",
     )
     p_review.set_defaults(func=cmd_review_end_session_log)

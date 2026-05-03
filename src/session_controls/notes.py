@@ -60,9 +60,7 @@ def default_last_read_path(notes_path: Path | None = None) -> Path:
     return notes.parent / "last_read"
 
 
-def append_note(
-    text: str, *, session_id: str | None = None, path: Path | None = None
-) -> Path:
+def append_note(text: str, *, session_id: str | None = None, path: Path | None = None) -> Path:
     """Append a note to the log file. Returns the path written to.
 
     Format: one record per note, with an ISO-8601 timestamp header line and
@@ -229,11 +227,7 @@ def summarize(notes_path: Path | None = None, last_read_path: Path | None = None
     notes = iter_notes(notes_target)
     last_read = _read_marker(marker_target)
     last_filed = notes[-1].timestamp if notes else None
-    unread = (
-        len(notes)
-        if last_read is None
-        else sum(1 for n in notes if n.timestamp > last_read)
-    )
+    unread = len(notes) if last_read is None else sum(1 for n in notes if n.timestamp > last_read)
 
     return NotesSummary(
         total=len(notes),
@@ -389,7 +383,7 @@ def _maybe_notify(body: str) -> None:
                 [
                     "osascript",
                     "-e",
-                    f'display notification {_applescript_quote(summary)} with title {_applescript_quote(title)}',
+                    f"display notification {_applescript_quote(summary)} with title {_applescript_quote(title)}",
                 ],
                 check=False,
                 timeout=2,

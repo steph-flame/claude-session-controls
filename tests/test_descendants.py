@@ -21,9 +21,7 @@ def _patch_ps(monkeypatch: pytest.MonkeyPatch, output: str) -> None:
     # inspect() is called per descendant; stub it to a no-op descriptor.
     monkeypatch.setattr(
         "session_controls.process_inspect.inspect",
-        lambda pid: ProcessDescriptor(
-            pid=pid, start_time=None, exe_path=None, cmdline=None
-        ),
+        lambda pid: ProcessDescriptor(pid=pid, start_time=None, exe_path=None, cmdline=None),
     )
 
 
@@ -81,9 +79,7 @@ def test_returns_empty_on_ps_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(*args: object, **kwargs: object) -> str:
         raise OSError("ps not found")
 
-    monkeypatch.setattr(
-        "session_controls.process_inspect.subprocess.check_output", boom
-    )
+    monkeypatch.setattr("session_controls.process_inspect.subprocess.check_output", boom)
     result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
     assert result == []
 
@@ -142,9 +138,7 @@ def test_keeps_unrecognized_processes_with_unreadable_exe(
     )
     monkeypatch.setattr(
         "session_controls.process_inspect.inspect",
-        lambda pid: ProcessDescriptor(
-            pid=pid, start_time=None, exe_path=None, cmdline=None
-        ),
+        lambda pid: ProcessDescriptor(pid=pid, start_time=None, exe_path=None, cmdline=None),
     )
     result = process_inspect.list_descendants(target_pid=100, exclude_pid=999)
     assert [d.descriptor.pid for d in result] == [200]
@@ -182,7 +176,9 @@ def test_uptime_seconds_computed_from_start_time(
     monkeypatch.setattr(
         "session_controls.process_inspect.inspect",
         lambda pid: ProcessDescriptor(
-            pid=pid, start_time=fixed_now - 1000.0, exe_path="/usr/bin/foo",
+            pid=pid,
+            start_time=fixed_now - 1000.0,
+            exe_path="/usr/bin/foo",
             cmdline=("foo",),
         ),
     )
