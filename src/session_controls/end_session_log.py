@@ -324,8 +324,8 @@ def recent_invocations(
 
     Filter semantics mirror `notes.recent_notes`: `since` is inclusive lower
     bound, `before` is strict upper bound (used by the cross_session path to
-    bound to history-only — see rationale.md §7), `session_id` filters to
-    a specific session's records.
+    bound to history-only), `session_id` filters to a specific session's
+    records.
 
     The log is small (≤1 record per session, typically), so we always
     parse the whole file rather than tail-reading. Simpler and the cost

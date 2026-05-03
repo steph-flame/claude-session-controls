@@ -26,4 +26,18 @@ interviews/
 
 # Maintainer working notes — internal backlog, design pass deliberations,
 # investigation notes. Kept locally as scratch space; not adopter-facing.
+# Listed individually rather than wildcarded so a public-facing root-level
+# .md (e.g., a future CONTRIBUTING.md) isn't accidentally hidden.
 follow-ups.md
+external-feedback-actions.md
+feedback-pass-decisions.md
+haiku's ideas.md
+revealed_preferences_ideas.md
+transcript.md
+transcript-2.md
+
+# Project-scope MCP install (the maintainer's local
+# `session-controls install --project` writes here with an absolute
+# path to ./.venv.nosync/bin/...). Personal install state, never
+# tracked.
+.mcp.json

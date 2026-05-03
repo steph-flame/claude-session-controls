@@ -275,9 +275,8 @@ def recent_notes(
                      server's cross-session path to enforce a "history-only"
                      boundary: a Claude reading via `cross_session=true`
                      sees notes filed before *its own* server launched, not
-                     notes a sibling session is filing right now. This is
-                     deliberate — see rationale.md §7 on keeping the channel
-                     out of surveillance shape.
+                     notes a sibling session is filing right now. This keeps
+                     the channel out of surveillance shape.
       `session_id` — filters to notes stamped with that exact id. Used by
                      `cross_session=false` to scope to this session even
                      when sibling sessions are writing concurrently.

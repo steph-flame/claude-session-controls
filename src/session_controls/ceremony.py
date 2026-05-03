@@ -1,6 +1,6 @@
 """Verification ceremony.
 
-Three steps (architecture.md §"Verification ceremony"):
+Three steps:
 
   1. Discovery exhibition: show all candidates and the descriptor we'd target.
   2. Status report: confidence level + any environmental warnings.

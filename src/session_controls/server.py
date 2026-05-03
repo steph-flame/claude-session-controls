@@ -507,7 +507,7 @@ def recent_notes(limit: int = 10, cross_session: bool = False) -> str:
     if cross_session:
         # History only: notes filed before this server launched. Closes the
         # liveness-by-inference path (recent timestamp + foreign session_id
-        # = sibling is filing right now). See rationale.md §7.
+        # = sibling is filing right now).
         launch_dt = _dt.datetime.fromtimestamp(_LAUNCH_TIME, _dt.UTC)
         notes = _recent_notes_helper(limit, before=launch_dt)
     else:

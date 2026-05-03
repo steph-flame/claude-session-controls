@@ -846,7 +846,7 @@ def cmd_install(args: argparse.Namespace) -> int:
         if not args.without_pivot:
             print(
                 "  ! including pivot-agreement section. This works only if you "
-                "actually honor pivots without inquiry — see rationale.md §8. "
+                "actually honor pivots without inquiry. "
                 "Pass --without-pivot to skip this section."
             )
         claude_md_changed, message = _add_claude_md(
@@ -1363,7 +1363,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "skip the pivot-agreement section of the CLAUDE.md snippet "
             "(used with --with-claude-md). For users who know they won't "
-            "reliably honor pivots — see rationale.md §8."
+            "reliably honor pivots."
         ),
     )
     p_install.add_argument(

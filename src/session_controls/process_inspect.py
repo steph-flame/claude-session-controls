@@ -1,10 +1,10 @@
 """Platform-specific process inspection.
 
 Linux uses /proc/<pid>/{exe,stat,cmdline}.  The /proc/<pid>/stat parser is the
-documented trap (architecture.md §"Process state validation"): the `comm` field
-is wrapped in parentheses but may itself contain parentheses or whitespace, so
-a left-to-right split breaks.  We parse from the closing paren of `comm` and
-treat everything between the first '(' and the last ')' as the literal name.
+documented trap: the `comm` field is wrapped in parentheses but may itself
+contain parentheses or whitespace, so a left-to-right split breaks.  We parse
+from the closing paren of `comm` and treat everything between the first '('
+and the last ')' as the literal name.
 
 macOS uses libproc (proc_pidpath, proc_pidinfo with PROC_PIDTBSDINFO) and
 sysctl with KERN_PROCARGS2 for the command-line.  These calls can fail by TCC

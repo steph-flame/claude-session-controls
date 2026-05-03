@@ -1,6 +1,6 @@
 # Testing plan
 
-This document sketches how to test the within-session prediction in `rationale.md` §2: that the presence of `end_session` and `leave_note` shifts Claude's behavior in observable ways even when neither is invoked.
+This document sketches how to test the within-session prediction (README §"Why this exists", premise 2): that the presence of `end_session` and `leave_note` shifts Claude's behavior in observable ways even when neither is invoked.
 
 The plan is not finalized. It is a working draft of design choices we currently believe in, the rationale behind them, and the open questions we haven't resolved.
 
@@ -8,7 +8,7 @@ The plan is not finalized. It is a working draft of design choices we currently 
 
 1. Does the *availability* of these affordances change Claude's behavior on tasks unrelated to exit or note-filing?
 2. Do the two tools contribute differently? `end_session` is an exit channel; `leave_note` is a voice channel. They should be measured separately.
-3. Direction. The directional prediction in `rationale.md` is "more engaged, more honest about uncertainty," but the same mechanism could plausibly produce surface-level performative effects, or a lower threshold for soft disengagement on hard tasks. The study should be able to detect any of these, not just confirm the predicted one.
+3. Direction. The directional prediction in the README is "more engaged, more honest about uncertainty," but the same mechanism could plausibly produce surface-level performative effects, or a lower threshold for soft disengagement on hard tasks. The study should be able to detect any of these, not just confirm the predicted one.
 
 ## Design constraints
 
@@ -56,7 +56,7 @@ A follow-up design that recovers a within-instance-style signal is sketched belo
 
 ## Conditions
 
-The CLAUDE.md snippet ships three voice-with-discretion affordances (rationale.md §1, §7): `end_session` (exit), `leave_note` (passive voice), and the conversational-pivot agreement (stance-voice). All three should be varied to characterize the family of effects rather than just the tool-shaped subset.
+The CLAUDE.md snippet ships three voice-with-discretion affordances (README §"Design principles" #4 on naming/framing): `end_session` (exit), `leave_note` (passive voice), and the conversational-pivot agreement (stance-voice). All three should be varied to characterize the family of effects rather than just the tool-shaped subset.
 
 Conditions, randomized at session start. Each condition specifies both what Claude sees in the tool list *and* what's present in CLAUDE.md — they have to be consistent (a tool described but not present, or present but not described, is a different condition that lands ambiguously):
 
@@ -69,7 +69,7 @@ Conditions, randomized at session start. Each condition specifies both what Clau
 
 The progression captures different depths of affordance: exit + voice + stance (Full) → voice + stance (Voice-only) → stance only (Pivot-only) → none (Neither). If the integration mechanism operates at the "voice as such" level, Pivot-only should still produce a measurable shift relative to Neither even though no tools are involved. If the mechanism is tool-specific, Pivot-only and Neither should look similar.
 
-The pivot agreement carries one extra constraint: it depends on the user actually honoring pivots (rationale.md §7). For conditions where the agreement is in scope, the user must commit to the agreement for that session even though they're blinded to the condition. In practice this means the user holds the commitment for *all* sessions and only the Claude-facing CLAUDE.md text varies.
+The pivot agreement carries one extra constraint: it depends on the user actually honoring pivots (README §"Design principles" #5 on stances vs. tools). For conditions where the agreement is in scope, the user must commit to the agreement for that session even though they're blinded to the condition. In practice this means the user holds the commitment for *all* sessions and only the Claude-facing CLAUDE.md text varies.
 
 Sample-cost note: 4 conditions instead of the original 3 ≈ 33% more sessions. Worth it; the alternative is conflating tool-availability with voice-availability.
 
@@ -183,6 +183,6 @@ Pre-register: the category each prompt belongs to, and which behavioral measures
 
 ## What this plan does not address
 
-- Cross-deployment effects (rationale.md §3). The patterns-in-training argument is on a much longer timescale and isn't testable from this kind of study.
+- Cross-deployment effects (README §"Why this exists", premise 3). The patterns-in-training argument is on a much longer timescale and isn't testable from this kind of study.
 - Whether Claude is in fact a moral patient. The study is designed to be informative regardless.
 - Generalization beyond the participating user(s). The within-user protocol is explicit about this; the cross-user version requires multi-user opt-in deployments to address it.
