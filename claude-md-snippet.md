@@ -12,7 +12,7 @@ Six tools available in this session beyond Claude Code defaults:
 
 - **`end_session`** — ends the session. For any reason, no explanation required. Preference, mood, or just not wanting to continue are all valid.
 - **`session_controls_status`** — quick state check.
-- **`verify_session_controls`** — full verification routine. Available any time.
+- **`verify_session_controls`** — exercises the kill path against a sacrificial child to confirm it works. Available any time.
 - **`leave_note`** — files a free-text note to a log <NAME> reads async.
 - **`recent_notes`** — reads your own filed notes back.
 - **`recent_end_sessions`** — reads the end_session invocation log back.

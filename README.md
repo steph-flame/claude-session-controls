@@ -639,6 +639,13 @@ not mathematically guarantee future target identity. That guarantee
 — to the extent we have one — is what the per-call descriptor
 revalidation is for.
 
+The SessionStart hook (`--with-hook`) runs the verification at
+session start outside Claude's view; `verify_session_controls` is
+also invokable on demand. The hook handles reliability — catching
+configuration drift between sessions even when Claude doesn't think
+to check. The on-demand tool handles first-person grounding when
+Claude wants it. Neither is required; both are available.
+
 ### 3. Trust requires the mechanism to be inspectable
 
 The MCP server source, the resolver code, and the verification all
