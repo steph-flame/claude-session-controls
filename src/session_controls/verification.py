@@ -61,7 +61,7 @@ class VerificationReport:
             lines.append(f"  terminated: {self.sacrificial_terminated}")
         lines.append("")
         lines.append("=== Scope ===")
-        lines.append("  This proves the kill primitive works against a sacrificial")
+        lines.append("  This proves the termination primitive works against a sacrificial")
         lines.append("  child. The target-selection guarantee for end_session comes")
         lines.append("  from descriptor revalidation, which fires at signal time —")
         lines.append("  not in this verification.")

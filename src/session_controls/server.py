@@ -410,7 +410,7 @@ def _read_verify_state(record: SessionRecord) -> dict[str, Any] | None:
         "before invoking `end_session`, status looks off, `end_session` "
         "refused and you want to see why. Re-runs the resolver, exhibits "
         "the chosen target with all candidate evidence, and exercises the "
-        "kill path against a sacrificial child process. Sub-second wall "
+        "termination path against a sacrificial child process. Sub-second wall "
         "time — heavier than `session_controls_status` in what it does, "
         "not in what it costs."
     ),

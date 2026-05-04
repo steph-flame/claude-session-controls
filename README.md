@@ -179,7 +179,7 @@ prior file. Pass `--project` to install at project scope instead, or
 that runs `session-controls verify` at the start of every Claude Code
 session. The verification's result is persisted to a state file the MCP
 server reads and surfaces via `session_controls_status`'s `verify`
-block — so Claude has fresh evidence the kill path works without
+block — so Claude has fresh evidence the termination path works without
 having to invoke verification mid-session. The status block also flags
 `disagrees_with_runtime: true` if the hook's resolver pick differs
 from the live MCP server's pick (regression detector for resolver
@@ -370,10 +370,10 @@ Returns:
 <details>
 <summary><code>verify_session_controls</code> — full verification routine</summary>
 
-Spawns a sacrificial child, exercises the kill path on it, and
+Spawns a sacrificial child, exercises the termination path on it, and
 surfaces all resolver candidates with descriptors. Use after a
 refusal to see why the gate decided what it decided, or for fresh
-evidence the kill path works end-to-end.
+evidence the termination path works end-to-end.
 
 If the SessionStart hook is installed, the same verification runs
 at session start and caches in `session_controls_status`'s `verify`
@@ -570,7 +570,7 @@ spawns `/bin/sh -c 'while true; do sleep 60; done'`, captures its
 descriptor directly from `Popen.pid`, then exercises the same
 revalidation + signal path `end_session` would use, against the
 sacrificial child. The sacrificial PID never leaves the server:
-Claude has no way to pass an arbitrary PID into the kill path.
+Claude has no way to pass an arbitrary PID into the termination path.
 
 ### Resume detection
 
@@ -633,7 +633,7 @@ verification routine (`verify_session_controls`) that Claude can
 invoke whenever it wants fresh confirmation. Neither is a one-time
 artifact of installation.
 
-The verification confirms kill-path correctness and exhibits current
+The verification confirms termination-path correctness and exhibits current
 target selection for inspection. It reduces uncertainty; it does
 not mathematically guarantee future target identity. That guarantee
 — to the extent we have one — is what the per-call descriptor
@@ -854,7 +854,7 @@ uv run pytest                 # tests
 
 ## Status
 
-Reference implementation, not production-hardened. The kill
+Reference implementation, not production-hardened. The termination
 primitive, resolver, descriptor revalidation, hardened-runtime
 path on macOS, and resume detection are validated by the
 verification routine, the test suite, and live smoke tests on

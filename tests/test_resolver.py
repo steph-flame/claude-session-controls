@@ -2,8 +2,8 @@
 
 The resolver is on the hot path. Two failure modes matter:
 
-  1. Wrong-target kill — resolver picks a wrapper or unrelated process and
-     end_session signals the wrong thing.
+  1. Wrong-target termination — resolver picks a wrapper or unrelated process
+     and end_session signals the wrong thing.
   2. Silent failure — resolver refuses when Claude is in fact reachable, so
      end_session can never succeed for a legitimate user.
 
@@ -61,7 +61,7 @@ def patch_inspectors(monkeypatch: pytest.MonkeyPatch) -> PatchFn:
 
 # ---------------------------------------------------------------------------
 # Catastrophe avoidance: the resolver must REFUSE in these cases. If any of
-# these picks a target, end_session would kill the wrong process.
+# these picks a target, end_session would terminate the wrong process.
 # ---------------------------------------------------------------------------
 
 
