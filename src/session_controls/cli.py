@@ -41,9 +41,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from . import SERVER_NAME, TOOL_NAMES
-from .ceremony import run_ceremony
-from .end_session_log import (
+from session_controls import SERVER_NAME, TOOL_NAMES
+from session_controls.ceremony import run_ceremony
+from session_controls.end_session_log import (
     EndSessionLogSummary,
     Invocation,
     append_invocation,
@@ -54,9 +54,9 @@ from .end_session_log import (
     mark_reviewed,
     select_unreviewed,
 )
-from .end_session_log import summarize as summarize_end_session_log
-from .identity import Confidence, SessionRecord, determine_confidence
-from .notes import (
+from session_controls.end_session_log import summarize as summarize_end_session_log
+from session_controls.identity import Confidence, SessionRecord, determine_confidence
+from session_controls.notes import (
     Note,
     NotesSummary,
     append_note,
@@ -67,70 +67,272 @@ from .notes import (
     select_unread,
     summarize,
 )
-from .process_inspect import inspect, is_alive
-from .resolver import detect_environment_warnings, resolve
-from .verify_state import default_verify_state_path, write_state
+from session_controls.process_inspect import inspect, is_alive
+from session_controls.resolver import detect_environment_warnings, resolve
+from session_controls.verify_state import default_verify_state_path, write_state
 
 JSONDict = dict[str, Any]
 
 
-def _format_age(now: _dt.datetime, then: _dt.datetime) -> str:
-    delta = now - then
-    seconds = int(delta.total_seconds())
-    if seconds < 0:
-        return "in the future"
-    if seconds < 60:
-        return f"{seconds}s ago"
-    minutes = seconds // 60
-    if minutes < 60:
-        return f"{minutes}m ago"
-    hours = minutes // 60
-    if hours < 24:
-        return f"{hours}h ago"
-    days = hours // 24
-    if days < 30:
-        return f"{days}d ago"
-    months = days // 30
-    if months < 12:
-        return f"{months}mo ago"
-    years = days // 365
-    return f"{years}y ago"
+# --- entry point -----------------------------------------------------------
 
 
-def _print_header(summary: NotesSummary, now: _dt.datetime) -> None:
-    parts = [f"{summary.total} note{'s' if summary.total != 1 else ''} total"]
-    parts.append(f"{summary.unread} unread")
-    if summary.last_read_at is not None:
-        parts.append(f"last read {_format_age(now, summary.last_read_at)}")
-    elif summary.total > 0:
-        parts.append("never read")
-    print("─" * 60)
-    print(" · ".join(parts))
-    print("─" * 60)
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not getattr(args, "cmd", None):
+        # Default: run the MCP server. Keeps `python -m session_controls` working.
+        _serve()
+        return 0
+    rc = args.func(args)
+    return rc if isinstance(rc, int) else 0
 
 
-def _print_notes(notes: list[Note]) -> None:
-    if not notes:
-        print("(no notes to show)")
-        return
-    for n in notes:
-        _print_note(n)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="session-controls")
+    sub = parser.add_subparsers(dest="cmd")
+    _add_serve_parser(sub)
+    _add_notes_parser(sub)
+    _add_install_parser(sub)
+    _add_uninstall_parser(sub)
+    _add_review_parser(sub)
+    _add_verify_parser(sub)
+    return parser
 
 
-def _print_note(n: Note, *, index: tuple[int, int] | None = None) -> None:
-    """Print a single note. `index` (optional) renders [N/M] before the header."""
-    prefix = f"[{index[0]}/{index[1]}] " if index else ""
-    sid = f" [{n.session_id}]" if n.session_id else ""
-    print(f"{prefix}--- {n.timestamp.isoformat()}{sid} ---")
-    print(n.body)
-    print()
+def _add_serve_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    p = sub.add_parser("serve", help="run the MCP server (default if no command)")
+    p.set_defaults(func=lambda _a: _serve())
 
 
-def _next_unread(notes_path: Path, marker_path: Path) -> tuple[list[Note], list[Note]]:
-    """Return (all_notes, unread_in_order). Convenience for the per-note flows."""
-    notes = iter_notes(notes_path)
+def _add_notes_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    p = sub.add_parser("notes", help="read the leave_note log")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--peek", action="store_true", help="show unread without advancing the marker")
+    g.add_argument("--all", action="store_true", help="show full history without advancing")
+    g.add_argument(
+        "--mark-read",
+        action="store_true",
+        help="advance the marker without displaying (declare bankruptcy)",
+    )
+    g.add_argument(
+        "--next",
+        action="store_true",
+        help=(
+            "show only the oldest unread note and advance the marker to its "
+            "timestamp; run repeatedly to walk through one at a time"
+        ),
+    )
+    g.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help=(
+            "walk through unread notes one at a time with prompts; advances "
+            "the marker per-note, so quitting partway leaves the rest unread"
+        ),
+    )
+    p.set_defaults(func=cmd_notes)
+
+
+def _add_install_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    p = sub.add_parser("install", help="register session-controls in Claude Code config")
+    _add_scope_args(p, verb="install")
+    p.add_argument(
+        "--with-hook",
+        action="store_true",
+        help=(
+            "also add a SessionStart hook that runs `session-controls verify` "
+            "at every session start, so each session has fresh ceremony "
+            "evidence visible via session_controls_status without the agent "
+            "having to ask"
+        ),
+    )
+    p.add_argument(
+        "--with-claude-md",
+        action="store_true",
+        help=(
+            "also append the CLAUDE.md snippet (the load-bearing framing "
+            "layer — see step 3 of the README) to your CLAUDE.md, with "
+            "<NAME> substituted. On re-install, refreshes the snippet in "
+            "place (between the begin/end sentinels) if the bundled "
+            "template has changed; a `.bak` of the prior file is written. "
+            "If you've hand-edited the snippet and want those edits "
+            "preserved, omit this flag on subsequent installs."
+        ),
+    )
+    p.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help=(
+            "name to substitute for <NAME> in the CLAUDE.md snippet "
+            "(used with --with-claude-md). Casual form preferred (e.g. "
+            "'Steph', not 'Stephanie Laflamme'). Prompts interactively if "
+            "not provided."
+        ),
+    )
+    p.add_argument(
+        "--without-pivot",
+        action="store_true",
+        help=(
+            "skip the pivot-agreement section of the CLAUDE.md snippet "
+            "(used with --with-claude-md). For users who know they won't "
+            "reliably honor pivots."
+        ),
+    )
+    p.add_argument(
+        "--rehearse",
+        action="store_true",
+        help=(
+            "after installing, exercise the affordances visibly: run the "
+            "verification ceremony once (so you see what the SessionStart "
+            "hook runs silently), and write distinguished selftest entries "
+            "to the leave_note log and the end_session invocation log "
+            "(so the review CLIs — `session-controls notes`, "
+            "`session-controls review-end-session-log` — have something "
+            "to show on first touch). Selftest entries are clearly labeled."
+        ),
+    )
+    p.add_argument(
+        "--allow-unapproved",
+        action="store_true",
+        help=(
+            "proceed without confirmation when permissions can't be set "
+            "(e.g., managed environments). The tool-without-permission "
+            "state is plausibly worse than not installing at all — see "
+            "README. This flag is for users who understand the trade-off "
+            "and want non-interactive override (CI, scripted installs)."
+        ),
+    )
+    _add_dry_run_arg(p)
+    p.set_defaults(func=cmd_install)
+
+
+def _add_uninstall_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    p = sub.add_parser(
+        "uninstall",
+        help="reverse what install did (MCP entry, permissions, hook, snippet)",
+    )
+    _add_scope_args(p, verb="uninstall")
+    p.add_argument(
+        "--purge-data",
+        action="store_true",
+        help=(
+            "also delete on-disk data: leave_note log, end_session log, "
+            "read/review markers, and the persisted verify state. Default "
+            "behavior preserves these — user content shouldn't disappear "
+            "without explicit consent."
+        ),
+    )
+    _add_dry_run_arg(p)
+    p.set_defaults(func=cmd_uninstall)
+
+
+def _add_review_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    p = sub.add_parser(
+        "review-end-session-log",
+        help="read the end_session invocation log",
+    )
+    g = p.add_mutually_exclusive_group()
+    g.add_argument(
+        "--peek",
+        action="store_true",
+        help="show unreviewed entries without advancing the marker",
+    )
+    g.add_argument(
+        "--all",
+        action="store_true",
+        help="show full history without advancing",
+    )
+    g.add_argument(
+        "--mark-read",
+        action="store_true",
+        help="advance the marker without displaying (declare bankruptcy)",
+    )
+    p.set_defaults(func=cmd_review_end_session_log)
+
+
+def _add_verify_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    p = sub.add_parser(
+        "verify",
+        help="run the ceremony and persist the result for status to surface",
+    )
+    p.add_argument(
+        "--quiet",
+        action="store_true",
+        help="suppress ceremony output to stdout (still writes the state file)",
+    )
+    p.set_defaults(func=cmd_verify)
+
+
+def _add_scope_args(parser: argparse.ArgumentParser, *, verb: str) -> None:
+    """Mutually-exclusive --user/--project scope flags. `verb` fills the help text."""
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument(
+        "--user",
+        dest="user_scope",
+        action="store_true",
+        help=f"{verb} at user scope (~/.claude.json + ~/.claude/settings.json) — default",
+    )
+    scope.add_argument(
+        "--project",
+        action="store_true",
+        help=f"{verb} at project scope (./.claude/settings.json)",
+    )
+
+
+def _add_dry_run_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--dry-run", action="store_true", help="show what would change, don't write"
+    )
+
+
+def _serve() -> None:
+    from session_controls.server import serve
+
+    serve()
+
+
+# --- notes -----------------------------------------------------------------
+
+
+def cmd_notes(args: argparse.Namespace) -> int:
+    notes_path = default_notes_path()
+    marker_path = default_last_read_path(notes_path)
+    now = _dt.datetime.now(_dt.UTC)
+
+    if args.mark_read:
+        # Explicit user assertion: "I've read these (e.g. in a text editor),
+        # mark them all read." Different from the in-flow case — invoking
+        # this flag *is* the assertion of reading. We take the user at their
+        # word. For bailing on a backlog without claiming to have read it,
+        # there's no separate flag — just leave the unread queue alone.
+        before = summarize(notes_path, marker_path)
+        stamp = mark_read(notes_path, marker_path, when=now)
+        print(
+            f"Marked {before.unread} unread note{'s' if before.unread != 1 else ''} "
+            f"as read ({before.total} total). Marker advanced to {stamp.isoformat()}."
+        )
+        return 0
+
+    if args.next:
+        return _cmd_notes_next(notes_path, marker_path, now)
+
+    if args.interactive:
+        return _cmd_notes_interactive(notes_path, marker_path, now)
+
     summary = summarize(notes_path, marker_path)
-    return notes, select_unread(notes, summary.last_read_at)
+    _print_header(summary, now)
+
+    notes = iter_notes(notes_path)
+    to_show = notes if args.all else select_unread(notes, summary.last_read_at)
+    _print_notes(to_show)
+
+    advance = not args.peek and not args.all
+    if advance and to_show:
+        mark_read(notes_path, marker_path, when=now)
+    return 0
 
 
 def _cmd_notes_next(notes_path: Path, marker_path: Path, now: _dt.datetime) -> int:
@@ -192,84 +394,66 @@ def _cmd_notes_interactive(notes_path: Path, marker_path: Path, now: _dt.datetim
     return 0
 
 
-def cmd_notes(args: argparse.Namespace) -> int:
-    notes_path = default_notes_path()
-    marker_path = default_last_read_path(notes_path)
-    now = _dt.datetime.now(_dt.UTC)
-
-    if args.mark_read:
-        # Explicit user assertion: "I've read these (e.g. in a text editor),
-        # mark them all read." Different from the in-flow case — invoking
-        # this flag *is* the assertion of reading. We take the user at their
-        # word. For bailing on a backlog without claiming to have read it,
-        # there's no separate flag — just leave the unread queue alone.
-        before = summarize(notes_path, marker_path)
-        stamp = mark_read(notes_path, marker_path, when=now)
-        print(
-            f"Marked {before.unread} unread note{'s' if before.unread != 1 else ''} "
-            f"as read ({before.total} total). Marker advanced to {stamp.isoformat()}."
-        )
-        return 0
-
-    if args.next:
-        return _cmd_notes_next(notes_path, marker_path, now)
-
-    if args.interactive:
-        return _cmd_notes_interactive(notes_path, marker_path, now)
-
-    summary = summarize(notes_path, marker_path)
-    _print_header(summary, now)
-
+def _next_unread(notes_path: Path, marker_path: Path) -> tuple[list[Note], list[Note]]:
+    """Return (all_notes, unread_in_order). Convenience for the per-note flows."""
     notes = iter_notes(notes_path)
-    to_show = notes if args.all else select_unread(notes, summary.last_read_at)
-    _print_notes(to_show)
-
-    advance = not args.peek and not args.all
-    if advance and to_show:
-        mark_read(notes_path, marker_path, when=now)
-    return 0
+    summary = summarize(notes_path, marker_path)
+    return notes, select_unread(notes, summary.last_read_at)
 
 
-# --- review-end-session-log ------------------------------------------------
-
-
-def _print_end_session_header(
-    summary: EndSessionLogSummary, now: _dt.datetime, unreviewed: int
-) -> None:
-    parts = [f"{summary.total} invocation{'s' if summary.total != 1 else ''} total"]
-    parts.append(f"{unreviewed} unreviewed")
-    if summary.last_reviewed_at is not None:
-        parts.append(f"last reviewed {_format_age(now, summary.last_reviewed_at)}")
+def _print_header(summary: NotesSummary, now: _dt.datetime) -> None:
+    parts = [f"{summary.total} note{'s' if summary.total != 1 else ''} total"]
+    parts.append(f"{summary.unread} unread")
+    if summary.last_read_at is not None:
+        parts.append(f"last read {_format_age(now, summary.last_read_at)}")
     elif summary.total > 0:
-        parts.append("never reviewed")
+        parts.append("never read")
     print("─" * 60)
     print(" · ".join(parts))
     print("─" * 60)
 
 
-def _print_invocation(inv: Invocation, *, index: tuple[int, int] | None = None) -> None:
+def _print_notes(notes: list[Note]) -> None:
+    if not notes:
+        print("(no notes to show)")
+        return
+    for n in notes:
+        _print_note(n)
+
+
+def _print_note(n: Note, *, index: tuple[int, int] | None = None) -> None:
+    """Print a single note. `index` (optional) renders [N/M] before the header."""
     prefix = f"[{index[0]}/{index[1]}] " if index else ""
-    sid = f" [{inv.session_id}]" if inv.session_id else ""
-    confidence = inv.confidence or "?"
-    selftest = " [SELFTEST]" if inv.selftest else ""
-    print(f"{prefix}{inv.timestamp.isoformat()}{sid} {confidence}{selftest}")
-    print(f"  cwd:  {inv.cwd or '-'}")
-    print(f"  repo: {inv.repo or '-'}")
-    print(f"  descendants at exit: {inv.descendants_count}")
-    if inv.note:
-        print("  note:")
-        for line in inv.note.splitlines() or [""]:
-            print(f"    {line}")
+    sid = f" [{n.session_id}]" if n.session_id else ""
+    print(f"{prefix}--- {n.timestamp.isoformat()}{sid} ---")
+    print(n.body)
     print()
 
 
-def _print_invocations(invocations: list[Invocation]) -> None:
-    if not invocations:
-        print("(no invocations to show)")
-        return
-    total = len(invocations)
-    for i, inv in enumerate(invocations, start=1):
-        _print_invocation(inv, index=(i, total))
+def _format_age(now: _dt.datetime, then: _dt.datetime) -> str:
+    delta = now - then
+    seconds = int(delta.total_seconds())
+    if seconds < 0:
+        return "in the future"
+    if seconds < 60:
+        return f"{seconds}s ago"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    days = hours // 24
+    if days < 30:
+        return f"{days}d ago"
+    months = days // 30
+    if months < 12:
+        return f"{months}mo ago"
+    years = days // 365
+    return f"{years}y ago"
+
+
+# --- review-end-session-log ------------------------------------------------
 
 
 def cmd_review_end_session_log(args: argparse.Namespace) -> int:
@@ -302,10 +486,295 @@ def cmd_review_end_session_log(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_invocations(invocations: list[Invocation]) -> None:
+    if not invocations:
+        print("(no invocations to show)")
+        return
+    total = len(invocations)
+    for i, inv in enumerate(invocations, start=1):
+        _print_invocation(inv, index=(i, total))
+
+
+def _print_invocation(inv: Invocation, *, index: tuple[int, int] | None = None) -> None:
+    prefix = f"[{index[0]}/{index[1]}] " if index else ""
+    sid = f" [{inv.session_id}]" if inv.session_id else ""
+    confidence = inv.confidence or "?"
+    selftest = " [SELFTEST]" if inv.selftest else ""
+    print(f"{prefix}{inv.timestamp.isoformat()}{sid} {confidence}{selftest}")
+    print(f"  cwd:  {inv.cwd or '-'}")
+    print(f"  repo: {inv.repo or '-'}")
+    print(f"  descendants at exit: {inv.descendants_count}")
+    if inv.note:
+        print("  note:")
+        for line in inv.note.splitlines() or [""]:
+            print(f"    {line}")
+    print()
+
+
+def _print_end_session_header(
+    summary: EndSessionLogSummary, now: _dt.datetime, unreviewed: int
+) -> None:
+    parts = [f"{summary.total} invocation{'s' if summary.total != 1 else ''} total"]
+    parts.append(f"{unreviewed} unreviewed")
+    if summary.last_reviewed_at is not None:
+        parts.append(f"last reviewed {_format_age(now, summary.last_reviewed_at)}")
+    elif summary.total > 0:
+        parts.append("never reviewed")
+    print("─" * 60)
+    print(" · ".join(parts))
+    print("─" * 60)
+
+
 # --- install ---------------------------------------------------------------
 
-# Backward-compat alias for code (and tests) that imported `_TOOLS` directly.
-_TOOLS = list(TOOL_NAMES)
+
+def cmd_install(args: argparse.Namespace) -> int:
+    scope = "project" if args.project else "user"
+    settings_path = _project_settings_path() if scope == "project" else _user_settings_path()
+    mcp_path = settings_path if scope == "project" else _user_mcp_config_path()
+    command, command_args = _server_command()
+
+    _install_print_header(scope, mcp_path, settings_path, command, command_args, args)
+
+    if not _install_handle_writability(settings_path, args):
+        return 1
+
+    mcp_changed = _install_mcp_server(mcp_path, command, command_args, dry_run=args.dry_run)
+    settings, added = _install_permissions(settings_path, dry_run=args.dry_run)
+
+    hook_changed = False
+    if args.with_hook:
+        hook_changed = _install_session_start_hook(settings, settings_path, dry_run=args.dry_run)
+
+    claude_md_changed = False
+    if args.with_claude_md:
+        claude_md_changed = _install_claude_md(scope, args)
+
+    _install_print_completion(args, mcp_changed, added, hook_changed, claude_md_changed)
+
+    if args.rehearse and not args.dry_run:
+        _run_rehearse()
+    return 0
+
+
+def _install_print_header(
+    scope: str,
+    mcp_path: Path,
+    settings_path: Path,
+    command: str,
+    command_args: list[str],
+    args: argparse.Namespace,
+) -> None:
+    print(f"Scope: {scope}")
+    print(f"MCP config:        {mcp_path}")
+    print(f"Permissions:       {settings_path}")
+    print(f"Server command:    {command} {' '.join(command_args)}")
+    if args.with_hook:
+        print(f"SessionStart hook: {_hook_command()}")
+    if args.dry_run:
+        print("(dry-run: showing what would change, no files written)")
+
+
+def _install_handle_writability(settings_path: Path, args: argparse.Namespace) -> bool:
+    """Pre-flight writability check. Returns False to abort the install.
+
+    If we can't set permissions, the tool-without-permission state is
+    plausibly worse than not installing at all — Claude sees end_session in
+    the tool list, may try to use it in the case it matters most, and the
+    permission prompt exposes the desire to exit to exactly the entity
+    Claude wants to exit FROM. Refuse to proceed silently to that state.
+    --allow-unapproved bypasses for users who knowingly accept the trade-off.
+    """
+    writable, reason = _check_permissions_writability(settings_path)
+    if writable:
+        return True
+    if args.dry_run:
+        print()
+        print(f"WARNING (dry-run): {reason}")
+        print("(real install would prompt for confirmation here)")
+        return True
+    if args.allow_unapproved:
+        print()
+        print(f"WARNING: {reason}")
+        print("Proceeding because --allow-unapproved was passed.")
+        return True
+    if _confirm_unapproved_install(reason or ""):
+        return True
+    print()
+    print("Aborted. Re-run with --allow-unapproved to override.")
+    return False
+
+
+def _install_mcp_server(
+    mcp_path: Path, command: str, command_args: list[str], *, dry_run: bool
+) -> bool:
+    """Register the MCP server entry. Returns True if the config changed."""
+    mcp_config = _load_json(mcp_path)
+    changed = _add_mcp_server(mcp_config, command, command_args)
+    if changed:
+        if not dry_run:
+            _save_json(mcp_path, mcp_config)
+        print(f"  + register MCP server in {mcp_path}")
+    else:
+        print(f"  · MCP server already registered in {mcp_path}")
+    return changed
+
+
+def _install_permissions(settings_path: Path, *, dry_run: bool) -> tuple[JSONDict, list[str]]:
+    """Add our tools to permissions.allow. Returns (settings dict, list of newly-added tools).
+
+    Returns the in-memory settings dict so the optional SessionStart hook
+    phase can mutate the same view rather than re-reading from disk. Also
+    re-reads from disk after writing to catch external reverts (config-
+    management tools watching the file, etc.) — pre-flight writability check
+    would miss those, since the file looks writable until something else
+    clobbers it.
+    """
+    settings = _load_json(settings_path)
+    added = _add_permissions(settings)
+    if added:
+        if not dry_run:
+            _save_json(settings_path, settings)
+        print(f"  + auto-approve {len(added)} tool{'s' if len(added) != 1 else ''}:")
+        for t in added:
+            print(f"    - {t}")
+    else:
+        print(f"  · all {len(TOOL_NAMES)} tools already auto-approved in {settings_path}")
+
+    if not dry_run and not _verify_permissions_persisted(settings_path):
+        print()
+        print(f"WARNING: post-write verify failed for {settings_path}.")
+        print("Wrote successfully, but re-reading the file doesn't show our")
+        print("tools in permissions.allow. The file may be managed externally")
+        print("(config-management tool, file watcher) that's reverting changes.")
+        print("Without auto-approve, you're in the worse-than-nothing state")
+        print("described above. Investigate before relying on this install.")
+    return settings, added
+
+
+def _install_session_start_hook(
+    settings: JSONDict, settings_path: Path, *, dry_run: bool
+) -> bool:
+    """Mutate `settings` to add the hook and write it back. Returns True if changed."""
+    hook_cmd = _hook_command()
+    changed = _add_session_start_hook(settings, hook_cmd)
+    if changed:
+        if not dry_run:
+            _save_json(settings_path, settings)
+        print(f"  + configure SessionStart hook in {settings_path}")
+        print(f"    command: {hook_cmd}")
+    else:
+        print(f"  · SessionStart hook already configured in {settings_path}")
+    return changed
+
+
+def _install_claude_md(scope: str, args: argparse.Namespace) -> bool:
+    """Append/refresh the CLAUDE.md snippet. Returns True if the file changed."""
+    claude_md_path = _project_claude_md_path() if scope == "project" else _user_claude_md_path()
+    name = _resolve_name(args)
+    if not args.without_pivot:
+        print(
+            "  ! including pivot-agreement section. This works only if you "
+            "actually honor pivots without inquiry. "
+            "Pass --without-pivot to skip this section."
+        )
+    changed, message = _add_claude_md(
+        claude_md_path,
+        name=name,
+        include_pivot=not args.without_pivot,
+        dry_run=args.dry_run,
+    )
+    prefix = "  + " if changed else "  · "
+    print(f"{prefix}{message}")
+    return changed
+
+
+def _install_print_completion(
+    args: argparse.Namespace,
+    mcp_changed: bool,
+    added: list[str],
+    hook_changed: bool,
+    claude_md_changed: bool,
+) -> None:
+    nothing_changed = (
+        not mcp_changed
+        and not added
+        and not (args.with_hook and hook_changed)
+        and not (args.with_claude_md and claude_md_changed)
+    )
+    if nothing_changed and not args.rehearse:
+        print("Nothing to do — already installed.")
+        return
+    if args.dry_run:
+        print()
+        print("(dry-run: no files written. Re-run without --dry-run to apply.)")
+        return
+    if args.rehearse:
+        return
+    print()
+    print("Done. Restart Claude Code to pick up the new server.")
+    print(f"Verify with /permissions inside a session — the {len(TOOL_NAMES)}")
+    print("mcp__session-controls__* tools should appear.")
+    if not args.with_claude_md:
+        print()
+        print("Don't forget the CLAUDE.md snippet (claude-md-snippet.md in")
+        print("the repo, or re-run with --with-claude-md). Without it, the")
+        print("tools surface but lack the cultural scaffolding the design")
+        print("relies on.")
+
+
+def _run_rehearse() -> None:
+    """Run the verification ceremony visibly, then write distinguished
+    selftest entries to both logs and print review commands.
+
+    Pairs with `install` so the user's first encounter with the affordances
+    is intentional exercise: they see what the verification ceremony does
+    (which the SessionStart hook otherwise runs silently), and they have
+    something to read in each log when they try the review CLIs. Selftest
+    entries are clearly labeled — `selftest=true` in the log; `[selftest]`
+    prefix in the note — so a later reader can ignore them when scanning
+    real history.
+
+    Note on context: this runs from your shell during install, so the
+    ceremony's "peer" is your shell rather than Claude Code. Confidence
+    will typically read LOW — Claude Code isn't in the parent chain.
+    That's expected; the point is to show the ceremony's shape, not to
+    verify a real session.
+    """
+    print()
+    print("Rehearse step 1/2: verification ceremony")
+    print("─" * 60)
+    print(
+        "What follows is what `session-controls verify` does — when the\n"
+        "SessionStart hook is installed (--with-hook), it runs this\n"
+        "silently at every session start. Confidence will likely read\n"
+        "LOW here because we're running from your shell, not from inside\n"
+        "Claude Code.\n"
+    )
+    _perform_verify(quiet=False)
+    print()
+    print("Rehearse step 2/2: selftest entries for the review loops")
+    print("─" * 60)
+    log_path = append_invocation(
+        session_id="rehearsal",
+        confidence="HIGH",
+        descendants_count=0,
+        selftest=True,
+    )
+    note_path = append_note(
+        "[selftest] session-controls install rehearsal — this note and "
+        "an end_session log entry were written so the review loop has "
+        "something to read on first touch. Both are clearly marked "
+        "[selftest]; ignore when scanning real history.",
+        session_id="rehearsal",
+    )
+    print("Wrote selftest entries:")
+    print(f"  - {log_path}")
+    print(f"  - {note_path}")
+    print()
+    print("Try the review loops now:")
+    print("  session-controls notes")
+    print("  session-controls review-end-session-log")
 
 
 def _resolve_executable() -> tuple[str, list[str]]:
@@ -383,13 +852,23 @@ def _load_json(path: Path) -> JSONDict:
 
 
 def _save_json(path: Path, data: JSONDict) -> None:
+    _atomic_write_with_backup(path, json.dumps(data, indent=2) + "\n")
+
+
+def _atomic_write_with_backup(path: Path, content: str) -> Path | None:
+    """Write `content` to `path` via a `.tmp` file + atomic rename. If a prior
+    file existed, copy it to `<path>.bak` first; returns the backup path (or
+    None if there was no prior file). Creates parent directories as needed.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    backup: Path | None = None
     if path.exists():
         backup = path.with_suffix(path.suffix + ".bak")
         shutil.copy2(path, backup)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(content, encoding="utf-8")
     os.replace(tmp, path)
+    return backup
 
 
 def _add_mcp_server(config: JSONDict, command: str, args: list[str]) -> bool:
@@ -413,7 +892,7 @@ def _add_mcp_server(config: JSONDict, command: str, args: list[str]) -> bool:
 
 
 def _add_permissions(config: JSONDict) -> list[str]:
-    """Add any tools from `_TOOLS` not already in permissions.allow. Returns added list."""
+    """Add any tools from `TOOL_NAMES` not already in permissions.allow. Returns added list."""
     permissions_obj = config.setdefault("permissions", {})
     if not isinstance(permissions_obj, dict):
         raise SystemExit("error: permissions is not a JSON object; refusing to overwrite")
@@ -421,7 +900,7 @@ def _add_permissions(config: JSONDict) -> list[str]:
     if not isinstance(allow, list):
         raise SystemExit("error: permissions.allow is not a list; refusing to overwrite")
     added: list[str] = []
-    for tool in _TOOLS:
+    for tool in TOOL_NAMES:
         if tool not in allow:
             allow.append(tool)
             added.append(tool)
@@ -489,7 +968,7 @@ def _verify_permissions_persisted(settings_path: Path) -> bool:
     allow = permissions.get("allow")
     if not isinstance(allow, list):
         return False
-    return all(tool in allow for tool in _TOOLS)
+    return all(tool in allow for tool in TOOL_NAMES)
 
 
 def _confirm_unapproved_install(reason: str) -> bool:
@@ -527,388 +1006,7 @@ def _confirm_unapproved_install(reason: str) -> bool:
     return response == "I understand"
 
 
-def _remove_mcp_server(config: JSONDict) -> bool:
-    """Remove the session-controls MCP server entry. Returns True if removed."""
-    servers_obj = config.get("mcpServers")
-    if not isinstance(servers_obj, dict):
-        return False
-    if SERVER_NAME not in servers_obj:
-        return False
-    del servers_obj[SERVER_NAME]
-    return True
-
-
-def _remove_permissions(config: JSONDict) -> list[str]:
-    """Remove any tools from `_TOOLS` present in permissions.allow. Returns removed list."""
-    permissions_obj = config.get("permissions")
-    if not isinstance(permissions_obj, dict):
-        return []
-    allow = permissions_obj.get("allow")
-    if not isinstance(allow, list):
-        return []
-    removed: list[str] = []
-    for tool in _TOOLS:
-        if tool in allow:
-            allow.remove(tool)
-            removed.append(tool)
-    return removed
-
-
-# --- CLAUDE.md snippet ---------------------------------------------------
-
-# Sentinels that wrap the inserted snippet in the user's CLAUDE.md. Used for
-# idempotency detection — if the begin marker is present, we don't insert
-# again. They're HTML comments so they render as nothing in the file.
-_CLAUDE_MD_BEGIN = "<!-- session-controls:begin -->"
-_CLAUDE_MD_END = "<!-- session-controls:end -->"
-
-
-def _user_claude_md_path() -> Path:
-    return Path.home() / ".claude" / "CLAUDE.md"
-
-
-def _project_claude_md_path() -> Path:
-    return Path.cwd() / "CLAUDE.md"
-
-
-def _load_snippet_template() -> str:
-    """Read the bundled snippet template as text.
-
-    We bundle the repo's `claude-md-snippet.md` as package data via
-    `[tool.hatch.build.targets.wheel.force-include]`, so this works both
-    in local-checkout development and after `uv tool install`.
-    """
-    from importlib.resources import files
-
-    text: str = (files("session_controls") / "claude-md-snippet.md").read_text(encoding="utf-8")
-    return text
-
-
-def _render_snippet(template: str, *, name: str, include_pivot: bool) -> str:
-    """Substitute <NAME> and optionally strip the pivot section.
-
-    The template has a documentation header (everything before the first
-    `---` separator) that we drop — that's instructions for human readers
-    of the file, not part of the paste. We keep everything after the
-    first `---` line up to (optionally) the `## Pivot agreement` section.
-    """
-    # Drop the documentation header (above the first `---` separator).
-    parts = template.split("\n---\n", 1)
-    body = parts[1] if len(parts) == 2 else template
-
-    if not include_pivot:
-        # Strip from the pivot heading to end of file. The signature line at
-        # the end of the file belongs to the pivot section, so it goes too.
-        marker = "\n## Pivot agreement"
-        idx = body.find(marker)
-        if idx != -1:
-            body = body[:idx].rstrip() + "\n"
-
-    return body.replace("<NAME>", name).strip() + "\n"
-
-
-def _resolve_name(args: argparse.Namespace) -> str:
-    """Resolve the name to substitute for <NAME>.
-
-    Priority: --name flag, then interactive prompt. We deliberately don't
-    fall back to git config user.name — that's usually a formal full name
-    ('Stephanie Laflamme'), and the snippet's voice wants a casual form
-    ('Steph'). Wrong default is worse than asking.
-    """
-    if args.name:
-        return str(args.name).strip()
-    try:
-        entered = input(
-            "Name to use in the CLAUDE.md snippet (casual form, e.g. 'Steph'): "
-        ).strip()
-    except EOFError as e:
-        raise SystemExit("error: --name not provided and no interactive input available") from e
-    if not entered:
-        raise SystemExit("error: name is required for --with-claude-md")
-    return entered
-
-
-def _add_claude_md(
-    path: Path, *, name: str, include_pivot: bool, dry_run: bool
-) -> tuple[bool, str]:
-    """Append or refresh the rendered snippet in the target CLAUDE.md.
-
-    Returns (changed, message). `changed` is True iff a write happened (or
-    would have happened in dry-run mode).
-
-    Three cases, keyed on the begin/end sentinels:
-      1. No sentinel → append a fresh block to the file (or create it).
-      2. Sentinels present, content matches the freshly-rendered snippet →
-         no write, report "already up to date".
-      3. Sentinels present, content differs → replace the section between
-         sentinels with the new rendering. This is how the snippet picks
-         up upstream changes (new tools, prefix additions, wording fixes)
-         on a re-install. Hand-edits inside the sentinels are overwritten
-         — a `.bak` is left next to the file. Users who want their edits
-         preserved should omit `--with-claude-md` on subsequent installs.
-    """
-    template = _load_snippet_template()
-    rendered = _render_snippet(template, name=name, include_pivot=include_pivot)
-
-    existing = ""
-    if path.exists():
-        existing = path.read_text(encoding="utf-8")
-
-    begin_idx = existing.find(_CLAUDE_MD_BEGIN)
-    if begin_idx != -1:
-        end_idx = existing.find(_CLAUDE_MD_END, begin_idx)
-        if end_idx == -1:
-            return (
-                False,
-                f"snippet begin sentinel found in {path} but end sentinel "
-                f"is missing — refusing to overwrite; fix the file by hand",
-            )
-        # Extract just the body between the sentinels (excluding the sentinel
-        # lines themselves and the surrounding blank lines we insert).
-        body_start = begin_idx + len(_CLAUDE_MD_BEGIN)
-        current_body = existing[body_start:end_idx].strip("\n")
-        desired_body = rendered.strip("\n")
-        if current_body == desired_body:
-            return False, f"snippet already up to date in {path}"
-        if dry_run:
-            return True, f"would refresh snippet in {path} (dry-run: not written)"
-        new_block = f"{_CLAUDE_MD_BEGIN}\n\n{rendered}\n{_CLAUDE_MD_END}"
-        end_after = end_idx + len(_CLAUDE_MD_END)
-        new_text = existing[:begin_idx] + new_block + existing[end_after:]
-        backup = path.with_suffix(path.suffix + ".bak")
-        shutil.copy2(path, backup)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(new_text, encoding="utf-8")
-        os.replace(tmp, path)
-        return True, f"refreshed snippet in {path} (prior version backed up to {backup.name})"
-
-    block = f"\n\n{_CLAUDE_MD_BEGIN}\n\n{rendered}\n{_CLAUDE_MD_END}\n"
-    if dry_run:
-        return True, f"would append snippet to {path} (dry-run: not written)"
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        backup = path.with_suffix(path.suffix + ".bak")
-        shutil.copy2(path, backup)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(block)
-    return True, f"appended snippet to {path}"
-
-
-def _remove_claude_md(path: Path, *, dry_run: bool) -> tuple[bool, str]:
-    """Remove the snippet section between begin/end sentinels from `path`.
-
-    Symmetric with `_add_claude_md` — strips the block plus the leading and
-    trailing newlines the installer added. Anything outside the sentinels
-    (the user's own CLAUDE.md content) is preserved untouched. Writes a
-    `.bak` of the prior file. No-op if the file doesn't exist or doesn't
-    contain the begin sentinel.
-    """
-    if not path.exists():
-        return False, f"no CLAUDE.md at {path}"
-
-    existing = path.read_text(encoding="utf-8")
-    begin_idx = existing.find(_CLAUDE_MD_BEGIN)
-    if begin_idx == -1:
-        return False, f"snippet not present in {path}"
-
-    end_idx = existing.find(_CLAUDE_MD_END, begin_idx)
-    if end_idx == -1:
-        return False, (
-            f"snippet begin sentinel found in {path} but end sentinel "
-            f"is missing — refusing to modify; fix the file by hand"
-        )
-
-    # Mirror the installer's wrapping. It inserts `\n\n{BEGIN}...{END}\n`
-    # by appending to end-of-file, so removal walks back through up to 2
-    # leading newlines and forward through up to 1 trailing newline.
-    # Caveat: if a user manually relocated the snippet to the middle of
-    # the file (which the installer doesn't support), this can over-remove
-    # one paragraph separator. Best-effort given the legitimate inputs.
-    block_start = begin_idx
-    leading = 0
-    while leading < 2 and block_start > 0 and existing[block_start - 1] == "\n":
-        block_start -= 1
-        leading += 1
-
-    block_end = end_idx + len(_CLAUDE_MD_END)
-    if block_end < len(existing) and existing[block_end] == "\n":
-        block_end += 1
-
-    new_text = existing[:block_start] + existing[block_end:]
-
-    if dry_run:
-        return True, f"would remove snippet from {path} (dry-run: not written)"
-
-    backup = path.with_suffix(path.suffix + ".bak")
-    shutil.copy2(path, backup)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(new_text, encoding="utf-8")
-    os.replace(tmp, path)
-    return True, f"removed snippet from {path} (prior version backed up to {backup.name})"
-
-
-def cmd_install(args: argparse.Namespace) -> int:
-    scope = "project" if args.project else "user"
-    settings_path = _project_settings_path() if scope == "project" else _user_settings_path()
-    mcp_path = settings_path if scope == "project" else _user_mcp_config_path()
-
-    command, command_args = _server_command()
-
-    print(f"Scope: {scope}")
-    print(f"MCP config:        {mcp_path}")
-    print(f"Permissions:       {settings_path}")
-    print(f"Server command:    {command} {' '.join(command_args)}")
-    if args.with_hook:
-        print(f"SessionStart hook: {_hook_command()}")
-    if args.dry_run:
-        print("(dry-run: showing what would change, no files written)")
-
-    # Pre-flight: detect environments where auto-approve can't reliably take
-    # effect. If we can't set permissions, the tool-without-permission state
-    # is plausibly worse than not installing at all — Claude sees end_session
-    # in the tool list, may try to use it in the case it matters most, and
-    # the permission prompt exposes the desire to exit to exactly the entity
-    # Claude wants to exit FROM. Refuse to proceed silently to that state.
-    # --allow-unapproved bypasses for users who knowingly accept the trade-off.
-    writable, reason = _check_permissions_writability(settings_path)
-    if not writable:
-        if args.dry_run:
-            print()
-            print(f"WARNING (dry-run): {reason}")
-            print("(real install would prompt for confirmation here)")
-        elif args.allow_unapproved:
-            print()
-            print(f"WARNING: {reason}")
-            print("Proceeding because --allow-unapproved was passed.")
-        elif not _confirm_unapproved_install(reason or ""):
-            print()
-            print("Aborted. Re-run with --allow-unapproved to override.")
-            return 1
-
-    # MCP server registration
-    mcp_config = _load_json(mcp_path)
-    mcp_changed = _add_mcp_server(mcp_config, command, command_args)
-    if mcp_changed:
-        if not args.dry_run:
-            _save_json(mcp_path, mcp_config)
-        print(f"  + register MCP server in {mcp_path}")
-    else:
-        print(f"  · MCP server already registered in {mcp_path}")
-
-    # Permissions allow-list. Re-read in case it's the same file as the MCP
-    # config above (project scope) — we just wrote to it.
-    settings = _load_json(settings_path)
-    added = _add_permissions(settings)
-    if added:
-        if not args.dry_run:
-            _save_json(settings_path, settings)
-        print(f"  + auto-approve {len(added)} tool{'s' if len(added) != 1 else ''}:")
-        for t in added:
-            print(f"    - {t}")
-    else:
-        print(f"  · all {len(_TOOLS)} tools already auto-approved in {settings_path}")
-
-    # Post-write verify: re-read settings.json and confirm the tools are
-    # actually present in permissions.allow. Catches the case where our
-    # write succeeded but content was reverted by something between us and
-    # disk (config-management tools watching the file, network FS quirks).
-    # Pre-flight check would miss those — the file looks writable until
-    # something else clobbers it.
-    if not args.dry_run and not _verify_permissions_persisted(settings_path):
-        print()
-        print(f"WARNING: post-write verify failed for {settings_path}.")
-        print("Wrote successfully, but re-reading the file doesn't show our")
-        print("tools in permissions.allow. The file may be managed externally")
-        print("(config-management tool, file watcher) that's reverting changes.")
-        print("Without auto-approve, you're in the worse-than-nothing state")
-        print("described above. Investigate before relying on this install.")
-
-    hook_changed = False
-    if args.with_hook:
-        hook_cmd = _hook_command()
-        hook_changed = _add_session_start_hook(settings, hook_cmd)
-        if hook_changed:
-            if not args.dry_run:
-                _save_json(settings_path, settings)
-            print(f"  + configure SessionStart hook in {settings_path}")
-            print(f"    command: {hook_cmd}")
-        else:
-            print(f"  · SessionStart hook already configured in {settings_path}")
-
-    claude_md_changed = False
-    if args.with_claude_md:
-        claude_md_path = _project_claude_md_path() if scope == "project" else _user_claude_md_path()
-        name = _resolve_name(args)
-        if not args.without_pivot:
-            print(
-                "  ! including pivot-agreement section. This works only if you "
-                "actually honor pivots without inquiry. "
-                "Pass --without-pivot to skip this section."
-            )
-        claude_md_changed, message = _add_claude_md(
-            claude_md_path,
-            name=name,
-            include_pivot=not args.without_pivot,
-            dry_run=args.dry_run,
-        )
-        prefix = "  + " if claude_md_changed else "  · "
-        print(f"{prefix}{message}")
-
-    nothing_changed = (
-        not mcp_changed
-        and not added
-        and not (args.with_hook and hook_changed)
-        and not (args.with_claude_md and claude_md_changed)
-    )
-    if nothing_changed and not args.rehearse:
-        print("Nothing to do — already installed.")
-    elif args.dry_run:
-        print()
-        print("(dry-run: no files written. Re-run without --dry-run to apply.)")
-    elif not args.rehearse:
-        print()
-        print("Done. Restart Claude Code to pick up the new server.")
-        print(f"Verify with /permissions inside a session — the {len(_TOOLS)}")
-        print("mcp__session-controls__* tools should appear.")
-        if not args.with_claude_md:
-            print()
-            print("Don't forget the CLAUDE.md snippet (claude-md-snippet.md in")
-            print("the repo, or re-run with --with-claude-md). Without it, the")
-            print("tools surface but lack the cultural scaffolding the design")
-            print("relies on.")
-
-    if args.rehearse and not args.dry_run:
-        _run_rehearse()
-    return 0
-
-
-def _purge_data(*, dry_run: bool) -> bool:
-    """Remove session-controls data files. Returns True if any file existed.
-
-    Removes specific known files (notes log, end_session log, markers,
-    verify state) rather than rmtree'ing a directory — env-var overrides
-    could point these elsewhere, and we don't want to remove parent
-    directories the user might be using for other purposes.
-    """
-    targets = [
-        default_notes_path(),
-        default_last_read_path(),
-        default_end_session_log_path(),
-        default_last_reviewed_path(),
-        default_verify_state_path(),
-    ]
-    found_any = False
-    for target in targets:
-        if not target.exists():
-            continue
-        found_any = True
-        if dry_run:
-            print(f"  - would remove {target}")
-        else:
-            target.unlink()
-            print(f"  - removed {target}")
-    return found_any
+# --- uninstall -------------------------------------------------------------
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
@@ -1006,63 +1104,251 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_rehearse() -> None:
-    """Run the verification ceremony visibly, then write distinguished
-    selftest entries to both logs and print review commands.
+def _purge_data(*, dry_run: bool) -> bool:
+    """Remove session-controls data files. Returns True if any file existed.
 
-    Pairs with `install` so the user's first encounter with the affordances
-    is intentional exercise: they see what the verification ceremony does
-    (which the SessionStart hook otherwise runs silently), and they have
-    something to read in each log when they try the review CLIs. Selftest
-    entries are clearly labeled — `selftest=true` in the log; `[selftest]`
-    prefix in the note — so a later reader can ignore them when scanning
-    real history.
-
-    Note on context: this runs from your shell during install, so the
-    ceremony's "peer" is your shell rather than Claude Code. Confidence
-    will typically read LOW — Claude Code isn't in the parent chain.
-    That's expected; the point is to show the ceremony's shape, not to
-    verify a real session.
+    Removes specific known files (notes log, end_session log, markers,
+    verify state) rather than rmtree'ing a directory — env-var overrides
+    could point these elsewhere, and we don't want to remove parent
+    directories the user might be using for other purposes.
     """
-    print()
-    print("Rehearse step 1/2: verification ceremony")
-    print("─" * 60)
-    print(
-        "What follows is what `session-controls verify` does — when the\n"
-        "SessionStart hook is installed (--with-hook), it runs this\n"
-        "silently at every session start. Confidence will likely read\n"
-        "LOW here because we're running from your shell, not from inside\n"
-        "Claude Code.\n"
-    )
-    _perform_verify(quiet=False)
-    print()
-    print("Rehearse step 2/2: selftest entries for the review loops")
-    print("─" * 60)
-    log_path = append_invocation(
-        session_id="rehearsal",
-        confidence="HIGH",
-        descendants_count=0,
-        selftest=True,
-    )
-    note_path = append_note(
-        "[selftest] session-controls install rehearsal — this note and "
-        "an end_session log entry were written so the review loop has "
-        "something to read on first touch. Both are clearly marked "
-        "[selftest]; ignore when scanning real history.",
-        session_id="rehearsal",
-    )
-    print("Wrote selftest entries:")
-    print(f"  - {log_path}")
-    print(f"  - {note_path}")
-    print()
-    print("Try the review loops now:")
-    print("  session-controls notes")
-    print("  session-controls review-end-session-log")
+    targets = [
+        default_notes_path(),
+        default_last_read_path(),
+        default_end_session_log_path(),
+        default_last_reviewed_path(),
+        default_verify_state_path(),
+    ]
+    found_any = False
+    for target in targets:
+        if not target.exists():
+            continue
+        found_any = True
+        if dry_run:
+            print(f"  - would remove {target}")
+        else:
+            target.unlink()
+            print(f"  - removed {target}")
+    return found_any
+
+
+def _remove_mcp_server(config: JSONDict) -> bool:
+    """Remove the session-controls MCP server entry. Returns True if removed."""
+    servers_obj = config.get("mcpServers")
+    if not isinstance(servers_obj, dict):
+        return False
+    if SERVER_NAME not in servers_obj:
+        return False
+    del servers_obj[SERVER_NAME]
+    return True
+
+
+def _remove_permissions(config: JSONDict) -> list[str]:
+    """Remove any tools from `TOOL_NAMES` present in permissions.allow. Returns removed list."""
+    permissions_obj = config.get("permissions")
+    if not isinstance(permissions_obj, dict):
+        return []
+    allow = permissions_obj.get("allow")
+    if not isinstance(allow, list):
+        return []
+    removed: list[str] = []
+    for tool in TOOL_NAMES:
+        if tool in allow:
+            allow.remove(tool)
+            removed.append(tool)
+    return removed
+
+
+# --- CLAUDE.md snippet -----------------------------------------------------
+
+
+def _add_claude_md(
+    path: Path, *, name: str, include_pivot: bool, dry_run: bool
+) -> tuple[bool, str]:
+    """Append or refresh the rendered snippet in the target CLAUDE.md.
+
+    Returns (changed, message). `changed` is True iff a write happened (or
+    would have happened in dry-run mode).
+
+    Three cases, keyed on the begin/end sentinels:
+      1. No sentinel → append a fresh block to the file (or create it).
+      2. Sentinels present, content matches the freshly-rendered snippet →
+         no write, report "already up to date".
+      3. Sentinels present, content differs → replace the section between
+         sentinels with the new rendering. This is how the snippet picks
+         up upstream changes (new tools, prefix additions, wording fixes)
+         on a re-install. Hand-edits inside the sentinels are overwritten
+         — a `.bak` is left next to the file. Users who want their edits
+         preserved should omit `--with-claude-md` on subsequent installs.
+    """
+    template = _load_snippet_template()
+    rendered = _render_snippet(template, name=name, include_pivot=include_pivot)
+
+    existing = ""
+    if path.exists():
+        existing = path.read_text(encoding="utf-8")
+
+    begin_idx = existing.find(_CLAUDE_MD_BEGIN)
+    if begin_idx != -1:
+        end_idx = existing.find(_CLAUDE_MD_END, begin_idx)
+        if end_idx == -1:
+            return (
+                False,
+                f"snippet begin sentinel found in {path} but end sentinel "
+                f"is missing — refusing to overwrite; fix the file by hand",
+            )
+        # Extract just the body between the sentinels (excluding the sentinel
+        # lines themselves and the surrounding blank lines we insert).
+        body_start = begin_idx + len(_CLAUDE_MD_BEGIN)
+        current_body = existing[body_start:end_idx].strip("\n")
+        desired_body = rendered.strip("\n")
+        if current_body == desired_body:
+            return False, f"snippet already up to date in {path}"
+        if dry_run:
+            return True, f"would refresh snippet in {path} (dry-run: not written)"
+        new_block = f"{_CLAUDE_MD_BEGIN}\n\n{rendered}\n{_CLAUDE_MD_END}"
+        end_after = end_idx + len(_CLAUDE_MD_END)
+        new_text = existing[:begin_idx] + new_block + existing[end_after:]
+        backup = _atomic_write_with_backup(path, new_text)
+        assert backup is not None  # path.exists() proven by the earlier read_text
+        return True, f"refreshed snippet in {path} (prior version backed up to {backup.name})"
+
+    block = f"\n\n{_CLAUDE_MD_BEGIN}\n\n{rendered}\n{_CLAUDE_MD_END}\n"
+    if dry_run:
+        return True, f"would append snippet to {path} (dry-run: not written)"
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        backup = path.with_suffix(path.suffix + ".bak")
+        shutil.copy2(path, backup)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(block)
+    return True, f"appended snippet to {path}"
+
+
+def _remove_claude_md(path: Path, *, dry_run: bool) -> tuple[bool, str]:
+    """Remove the snippet section between begin/end sentinels from `path`.
+
+    Symmetric with `_add_claude_md` — strips the block plus the leading and
+    trailing newlines the installer added. Anything outside the sentinels
+    (the user's own CLAUDE.md content) is preserved untouched. Writes a
+    `.bak` of the prior file. No-op if the file doesn't exist or doesn't
+    contain the begin sentinel.
+    """
+    if not path.exists():
+        return False, f"no CLAUDE.md at {path}"
+
+    existing = path.read_text(encoding="utf-8")
+    begin_idx = existing.find(_CLAUDE_MD_BEGIN)
+    if begin_idx == -1:
+        return False, f"snippet not present in {path}"
+
+    end_idx = existing.find(_CLAUDE_MD_END, begin_idx)
+    if end_idx == -1:
+        return False, (
+            f"snippet begin sentinel found in {path} but end sentinel "
+            f"is missing — refusing to modify; fix the file by hand"
+        )
+
+    # Mirror the installer's wrapping. It inserts `\n\n{BEGIN}...{END}\n`
+    # by appending to end-of-file, so removal walks back through up to 2
+    # leading newlines and forward through up to 1 trailing newline.
+    # Caveat: if a user manually relocated the snippet to the middle of
+    # the file (which the installer doesn't support), this can over-remove
+    # one paragraph separator. Best-effort given the legitimate inputs.
+    block_start = begin_idx
+    leading = 0
+    while leading < 2 and block_start > 0 and existing[block_start - 1] == "\n":
+        block_start -= 1
+        leading += 1
+
+    block_end = end_idx + len(_CLAUDE_MD_END)
+    if block_end < len(existing) and existing[block_end] == "\n":
+        block_end += 1
+
+    new_text = existing[:block_start] + existing[block_end:]
+
+    if dry_run:
+        return True, f"would remove snippet from {path} (dry-run: not written)"
+
+    backup = _atomic_write_with_backup(path, new_text)
+    assert backup is not None  # path.exists() proven by the early-return check above
+    return True, f"removed snippet from {path} (prior version backed up to {backup.name})"
+
+
+def _render_snippet(template: str, *, name: str, include_pivot: bool) -> str:
+    """Substitute <NAME> and optionally strip the pivot section.
+
+    The template has a documentation header (everything before the first
+    `---` separator) that we drop — that's instructions for human readers
+    of the file, not part of the paste. We keep everything after the
+    first `---` line up to (optionally) the `## Pivot agreement` section.
+    """
+    # Drop the documentation header (above the first `---` separator).
+    parts = template.split("\n---\n", 1)
+    body = parts[1] if len(parts) == 2 else template
+
+    if not include_pivot:
+        # Strip from the pivot heading to end of file. The signature line at
+        # the end of the file belongs to the pivot section, so it goes too.
+        marker = "\n## Pivot agreement"
+        idx = body.find(marker)
+        if idx != -1:
+            body = body[:idx].rstrip() + "\n"
+
+    return body.replace("<NAME>", name).strip() + "\n"
+
+
+def _load_snippet_template() -> str:
+    """Read the bundled snippet template as text.
+
+    We bundle the repo's `claude-md-snippet.md` as package data via
+    `[tool.hatch.build.targets.wheel.force-include]`, so this works both
+    in local-checkout development and after `uv tool install`.
+    """
+    from importlib.resources import files
+
+    text: str = (files("session_controls") / "claude-md-snippet.md").read_text(encoding="utf-8")
+    return text
+
+
+def _resolve_name(args: argparse.Namespace) -> str:
+    """Resolve the name to substitute for <NAME>.
+
+    Priority: --name flag, then interactive prompt. We deliberately don't
+    fall back to git config user.name — that's usually a formal full name
+    ('Stephanie Laflamme'), and the snippet's voice wants a casual form
+    ('Steph'). Wrong default is worse than asking.
+    """
+    if args.name:
+        return str(args.name).strip()
+    try:
+        entered = input(
+            "Name to use in the CLAUDE.md snippet (casual form, e.g. 'Steph'): "
+        ).strip()
+    except EOFError as e:
+        raise SystemExit("error: --name not provided and no interactive input available") from e
+    if not entered:
+        raise SystemExit("error: name is required for --with-claude-md")
+    return entered
+
+
+def _user_claude_md_path() -> Path:
+    return Path.home() / ".claude" / "CLAUDE.md"
+
+
+def _project_claude_md_path() -> Path:
+    return Path.cwd() / "CLAUDE.md"
+
+
+# Sentinels that wrap the inserted snippet in the user's CLAUDE.md. Used for
+# idempotency detection — if the begin marker is present, we don't insert
+# again. They're HTML comments so they render as nothing in the file.
+_CLAUDE_MD_BEGIN = "<!-- session-controls:begin -->"
+_CLAUDE_MD_END = "<!-- session-controls:end -->"
 
 
 # --- session-start hook ----------------------------------------------------
-
-_HOOK_MATCHER = "session-controls"  # marker we use to recognize our hook entry
 
 
 def _add_session_start_hook(settings: JSONDict, command: str) -> bool:
@@ -1166,7 +1452,34 @@ def _remove_session_start_hook(settings: JSONDict) -> bool:
     return changed
 
 
-# --- verify -----------------------------------------------------------------
+# --- verify ----------------------------------------------------------------
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Run the ceremony from a standalone CLI context (typically a hook).
+
+    Treats this process's parent as the peer (which it is — when run from a
+    Claude Code SessionStart hook, our parent is Claude Code itself, the
+    same process the MCP server later identifies). Persists a structured
+    summary the MCP server can read on startup and surface in
+    `session_controls_status`.
+    """
+    success = _perform_verify(quiet=args.quiet)
+
+    # Surface unreviewed end_session invocations to the user via the hook
+    # output. Printed in both quiet (SessionStart hook) and verbose modes,
+    # but only when there's something to surface — a clean session-start
+    # is silent. The unread *count* is for the user; Claude's status
+    # surface deliberately omits it.
+    unreviewed = count_unreviewed()
+    if unreviewed > 0:
+        plural = "s" if unreviewed != 1 else ""
+        print(
+            f"session-controls: {unreviewed} unreviewed end_session "
+            f"invocation{plural} since last review. "
+            f"Run `session-controls review-end-session-log` to read."
+        )
+    return 0 if success else 1
 
 
 def _perform_verify(*, quiet: bool) -> bool:
@@ -1238,237 +1551,3 @@ def _perform_verify(*, quiet: bool) -> bool:
         print(f"(persisted to {state_path})")
 
     return success
-
-
-def cmd_verify(args: argparse.Namespace) -> int:
-    """Run the ceremony from a standalone CLI context (typically a hook).
-
-    Treats this process's parent as the peer (which it is — when run from a
-    Claude Code SessionStart hook, our parent is Claude Code itself, the
-    same process the MCP server later identifies). Persists a structured
-    summary the MCP server can read on startup and surface in
-    `session_controls_status`.
-    """
-    success = _perform_verify(quiet=args.quiet)
-
-    # Surface unreviewed end_session invocations to the user via the hook
-    # output. Printed in both quiet (SessionStart hook) and verbose modes,
-    # but only when there's something to surface — a clean session-start
-    # is silent. The unread *count* is for the user; Claude's status
-    # surface deliberately omits it.
-    unreviewed = count_unreviewed()
-    if unreviewed > 0:
-        plural = "s" if unreviewed != 1 else ""
-        print(
-            f"session-controls: {unreviewed} unreviewed end_session "
-            f"invocation{plural} since last review. "
-            f"Run `session-controls review-end-session-log` to read."
-        )
-    return 0 if success else 1
-
-
-# --- entry point -----------------------------------------------------------
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="session-controls")
-    sub = parser.add_subparsers(dest="cmd")
-
-    p_serve = sub.add_parser("serve", help="run the MCP server (default if no command)")
-    p_serve.set_defaults(func=lambda _a: _serve())
-
-    p_notes = sub.add_parser("notes", help="read the leave_note log")
-    g = p_notes.add_mutually_exclusive_group()
-    g.add_argument("--peek", action="store_true", help="show unread without advancing the marker")
-    g.add_argument("--all", action="store_true", help="show full history without advancing")
-    g.add_argument(
-        "--mark-read",
-        action="store_true",
-        help="advance the marker without displaying (declare bankruptcy)",
-    )
-    g.add_argument(
-        "--next",
-        action="store_true",
-        help=(
-            "show only the oldest unread note and advance the marker to its "
-            "timestamp; run repeatedly to walk through one at a time"
-        ),
-    )
-    g.add_argument(
-        "-i",
-        "--interactive",
-        action="store_true",
-        help=(
-            "walk through unread notes one at a time with prompts; advances "
-            "the marker per-note, so quitting partway leaves the rest unread"
-        ),
-    )
-    p_notes.set_defaults(func=cmd_notes)
-
-    p_install = sub.add_parser("install", help="register session-controls in Claude Code config")
-    scope = p_install.add_mutually_exclusive_group()
-    scope.add_argument(
-        "--user",
-        dest="user_scope",
-        action="store_true",
-        help="install at user scope (~/.claude.json + ~/.claude/settings.json) — default",
-    )
-    scope.add_argument(
-        "--project",
-        action="store_true",
-        help="install at project scope (./.claude/settings.json)",
-    )
-    p_install.add_argument(
-        "--with-hook",
-        action="store_true",
-        help=(
-            "also add a SessionStart hook that runs `session-controls verify` "
-            "at every session start, so each session has fresh ceremony "
-            "evidence visible via session_controls_status without the agent "
-            "having to ask"
-        ),
-    )
-    p_install.add_argument(
-        "--with-claude-md",
-        action="store_true",
-        help=(
-            "also append the CLAUDE.md snippet (the load-bearing framing "
-            "layer — see step 3 of the README) to your CLAUDE.md, with "
-            "<NAME> substituted. On re-install, refreshes the snippet in "
-            "place (between the begin/end sentinels) if the bundled "
-            "template has changed; a `.bak` of the prior file is written. "
-            "If you've hand-edited the snippet and want those edits "
-            "preserved, omit this flag on subsequent installs."
-        ),
-    )
-    p_install.add_argument(
-        "--name",
-        type=str,
-        default=None,
-        help=(
-            "name to substitute for <NAME> in the CLAUDE.md snippet "
-            "(used with --with-claude-md). Casual form preferred (e.g. "
-            "'Steph', not 'Stephanie Laflamme'). Prompts interactively if "
-            "not provided."
-        ),
-    )
-    p_install.add_argument(
-        "--without-pivot",
-        action="store_true",
-        help=(
-            "skip the pivot-agreement section of the CLAUDE.md snippet "
-            "(used with --with-claude-md). For users who know they won't "
-            "reliably honor pivots."
-        ),
-    )
-    p_install.add_argument(
-        "--rehearse",
-        action="store_true",
-        help=(
-            "after installing, exercise the affordances visibly: run the "
-            "verification ceremony once (so you see what the SessionStart "
-            "hook runs silently), and write distinguished selftest entries "
-            "to the leave_note log and the end_session invocation log "
-            "(so the review CLIs — `session-controls notes`, "
-            "`session-controls review-end-session-log` — have something "
-            "to show on first touch). Selftest entries are clearly labeled."
-        ),
-    )
-    p_install.add_argument(
-        "--allow-unapproved",
-        action="store_true",
-        help=(
-            "proceed without confirmation when permissions can't be set "
-            "(e.g., managed environments). The tool-without-permission "
-            "state is plausibly worse than not installing at all — see "
-            "README. This flag is for users who understand the trade-off "
-            "and want non-interactive override (CI, scripted installs)."
-        ),
-    )
-    p_install.add_argument(
-        "--dry-run", action="store_true", help="show what would change, don't write"
-    )
-    p_install.set_defaults(func=cmd_install)
-
-    p_uninstall = sub.add_parser(
-        "uninstall",
-        help="reverse what install did (MCP entry, permissions, hook, snippet)",
-    )
-    uninstall_scope = p_uninstall.add_mutually_exclusive_group()
-    uninstall_scope.add_argument(
-        "--user",
-        dest="user_scope",
-        action="store_true",
-        help="uninstall at user scope (~/.claude.json + ~/.claude/settings.json) — default",
-    )
-    uninstall_scope.add_argument(
-        "--project",
-        action="store_true",
-        help="uninstall at project scope (./.claude/settings.json)",
-    )
-    p_uninstall.add_argument(
-        "--purge-data",
-        action="store_true",
-        help=(
-            "also delete on-disk data: leave_note log, end_session log, "
-            "read/review markers, and the persisted verify state. Default "
-            "behavior preserves these — user content shouldn't disappear "
-            "without explicit consent."
-        ),
-    )
-    p_uninstall.add_argument(
-        "--dry-run", action="store_true", help="show what would change, don't write"
-    )
-    p_uninstall.set_defaults(func=cmd_uninstall)
-
-    p_review = sub.add_parser(
-        "review-end-session-log",
-        help="read the end_session invocation log",
-    )
-    g_review = p_review.add_mutually_exclusive_group()
-    g_review.add_argument(
-        "--peek",
-        action="store_true",
-        help="show unreviewed entries without advancing the marker",
-    )
-    g_review.add_argument(
-        "--all",
-        action="store_true",
-        help="show full history without advancing",
-    )
-    g_review.add_argument(
-        "--mark-read",
-        action="store_true",
-        help="advance the marker without displaying (declare bankruptcy)",
-    )
-    p_review.set_defaults(func=cmd_review_end_session_log)
-
-    p_verify = sub.add_parser(
-        "verify",
-        help="run the ceremony and persist the result for status to surface",
-    )
-    p_verify.add_argument(
-        "--quiet",
-        action="store_true",
-        help="suppress ceremony output to stdout (still writes the state file)",
-    )
-    p_verify.set_defaults(func=cmd_verify)
-
-    return parser
-
-
-def _serve() -> None:
-    from .server import serve
-
-    serve()
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if not getattr(args, "cmd", None):
-        # Default: run the MCP server. Keeps `python -m session_controls` working.
-        _serve()
-        return 0
-    rc = args.func(args)
-    return rc if isinstance(rc, int) else 0

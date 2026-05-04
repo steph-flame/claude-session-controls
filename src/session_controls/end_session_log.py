@@ -63,6 +63,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from session_controls.marker import iso, read_marker, write_marker
+
 ENV_LOG_PATH = "CLAUDE_SESSION_CONTROLS_END_SESSION_LOG"
 
 
@@ -185,33 +187,9 @@ class EndSessionLogSummary:
     def to_dict(self) -> dict[str, object]:
         return {
             "total": self.total,
-            "last_reviewed_at": _iso(self.last_reviewed_at),
-            "last_invoked_at": _iso(self.last_invoked_at),
+            "last_reviewed_at": iso(self.last_reviewed_at),
+            "last_invoked_at": iso(self.last_invoked_at),
         }
-
-
-def _iso(dt: _dt.datetime | None) -> str | None:
-    return dt.isoformat() if dt is not None else None
-
-
-def _read_marker(path: Path) -> _dt.datetime | None:
-    try:
-        raw = path.read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
-        return None
-    if not raw:
-        return None
-    try:
-        return _dt.datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-
-
-def _write_marker(path: Path, when: _dt.datetime) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(when.isoformat(), encoding="utf-8")
-    os.replace(tmp, path)
 
 
 def _parse_record(line: str) -> Invocation | None:
@@ -277,7 +255,7 @@ def summarize(
     marker_target = last_reviewed_path or default_last_reviewed_path(log_target)
 
     invocations = iter_invocations(log_target)
-    last_reviewed = _read_marker(marker_target)
+    last_reviewed = read_marker(marker_target)
     last_invoked = invocations[-1].timestamp if invocations else None
 
     return EndSessionLogSummary(
@@ -296,7 +274,7 @@ def count_unreviewed(log_path: Path | None = None, last_reviewed_path: Path | No
     log_target = log_path or default_end_session_log_path()
     marker_target = last_reviewed_path or default_last_reviewed_path(log_target)
     invocations = iter_invocations(log_target)
-    last_reviewed = _read_marker(marker_target)
+    last_reviewed = read_marker(marker_target)
     if last_reviewed is None:
         return len(invocations)
     return sum(1 for inv in invocations if inv.timestamp > last_reviewed)
@@ -351,5 +329,5 @@ def mark_reviewed(
     log_target = log_path or default_end_session_log_path()
     marker_target = last_reviewed_path or default_last_reviewed_path(log_target)
     stamp = when or _dt.datetime.now(_dt.UTC)
-    _write_marker(marker_target, stamp)
+    write_marker(marker_target, stamp)
     return stamp

@@ -22,28 +22,29 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from . import SERVER_NAME, TOOL_NAMES, __version__
-from .ceremony import run_ceremony
-from .claude_code_session import read_session_id_for_pid
-from .end_session_log import append_invocation as _append_invocation
-from .end_session_log import iter_invocations as _iter_invocations_helper
-from .end_session_log import recent_invocations as _recent_invocations_helper
-from .end_session_log import summarize as summarize_end_session_log
-from .identity import (
+from session_controls import SERVER_NAME, TOOL_NAMES, __version__
+from session_controls.ceremony import run_ceremony
+from session_controls.claude_code_session import read_session_id_for_pid
+from session_controls.end_session_log import (
+    append_invocation,
+    iter_invocations,
+    recent_invocations,
+)
+from session_controls.end_session_log import summarize as summarize_end_session_log
+from session_controls.identity import (
     Confidence,
     DescendantInfo,
     ProcessDescriptor,
     SessionRecord,
     determine_confidence,
 )
-from .notes import append_note
-from .notes import recent_notes as _recent_notes_helper
-from .notes import summarize as summarize_notes
-from .process_inspect import inspect, is_alive, list_descendants
-from .resolver import detect_environment_warnings, resolve
-from .termination import end_session as run_end_session
-from .verify_state import default_verify_state_path
-from .verify_state import read_state as read_verify_state
+from session_controls.notes import append_note, read_recent_notes
+from session_controls.notes import summarize as summarize_notes
+from session_controls.process_inspect import inspect, is_alive, list_descendants
+from session_controls.resolver import detect_environment_warnings, resolve
+from session_controls.termination import end_session as run_end_session
+from session_controls.verify_state import default_verify_state_path
+from session_controls.verify_state import read_state as read_verify_state
 
 mcp: FastMCP = FastMCP(SERVER_NAME)
 
@@ -162,7 +163,7 @@ def _check_resumed_after_end_session() -> bool | None:
     if _LAUNCH_CLAUDE_CODE_SESSION_ID is None:
         return None
     try:
-        invocations = _iter_invocations_helper()
+        invocations = iter_invocations()
     except OSError:
         return None
     return any(inv.claude_code_session_id == _LAUNCH_CLAUDE_CODE_SESSION_ID for inv in invocations)
@@ -303,7 +304,7 @@ def end_session(
             except OSError as e:
                 log_notes.append(f"note write failed: {e}")
         try:
-            _append_invocation(
+            append_invocation(
                 session_id=_SESSION_ID,
                 confidence=record.confidence.value,
                 descendants_count=len(record.descendants),
@@ -503,9 +504,9 @@ def recent_notes(limit: int = 10, cross_session: bool = False) -> str:
         # liveness-by-inference path (recent timestamp + foreign session_id
         # = sibling is filing right now).
         launch_dt = _dt.datetime.fromtimestamp(_LAUNCH_TIME, _dt.UTC)
-        notes = _recent_notes_helper(limit, before=launch_dt)
+        notes = read_recent_notes(limit, before=launch_dt)
     else:
-        notes = _recent_notes_helper(limit, session_id=_SESSION_ID)
+        notes = read_recent_notes(limit, session_id=_SESSION_ID)
     return _format_json(
         {
             "scope": "cross_session" if cross_session else "current_session",
@@ -549,9 +550,9 @@ def recent_end_sessions(limit: int = 10, cross_session: bool = False) -> str:
         return _format_json({"invocations": [], "your_session_id": _SESSION_ID, "count": 0})
     if cross_session:
         launch_dt = _dt.datetime.fromtimestamp(_LAUNCH_TIME, _dt.UTC)
-        invocations = _recent_invocations_helper(limit, before=launch_dt)
+        invocations = recent_invocations(limit, before=launch_dt)
     else:
-        invocations = _recent_invocations_helper(limit, session_id=_SESSION_ID)
+        invocations = recent_invocations(limit, session_id=_SESSION_ID)
     return _format_json(
         {
             "scope": "cross_session" if cross_session else "current_session",

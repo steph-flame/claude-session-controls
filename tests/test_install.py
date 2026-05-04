@@ -8,9 +8,8 @@ from typing import Any
 
 import pytest
 
-from session_controls import SERVER_NAME
+from session_controls import SERVER_NAME, TOOL_NAMES
 from session_controls.cli import (
-    _TOOLS,
     _add_mcp_server,
     _add_permissions,
     _add_session_start_hook,
@@ -90,31 +89,31 @@ def test_add_mcp_server_preserves_other_servers() -> None:
 def test_add_permissions_to_empty_config() -> None:
     config: dict[str, Any] = {}
     added = _add_permissions(config)
-    assert sorted(added) == sorted(_TOOLS)
-    assert config["permissions"]["allow"] == _TOOLS
+    assert sorted(added) == sorted(TOOL_NAMES)
+    assert config["permissions"]["allow"] == list(TOOL_NAMES)
 
 
 def test_add_permissions_appends_to_existing_list() -> None:
     config: dict[str, Any] = {"permissions": {"allow": ["Bash(git:*)"]}}
     added = _add_permissions(config)
-    assert sorted(added) == sorted(_TOOLS)
+    assert sorted(added) == sorted(TOOL_NAMES)
     assert "Bash(git:*)" in config["permissions"]["allow"]
-    for tool in _TOOLS:
+    for tool in TOOL_NAMES:
         assert tool in config["permissions"]["allow"]
 
 
 def test_add_permissions_idempotent() -> None:
-    config: dict[str, Any] = {"permissions": {"allow": list(_TOOLS)}}
+    config: dict[str, Any] = {"permissions": {"allow": list(TOOL_NAMES)}}
     added = _add_permissions(config)
     assert added == []
 
 
 def test_add_permissions_partial_overlap() -> None:
-    config: dict[str, Any] = {"permissions": {"allow": [_TOOLS[0], _TOOLS[1]]}}
+    config: dict[str, Any] = {"permissions": {"allow": [TOOL_NAMES[0], TOOL_NAMES[1]]}}
     added = _add_permissions(config)
-    expected_added = [t for t in _TOOLS if t not in {_TOOLS[0], _TOOLS[1]}]
+    expected_added = [t for t in TOOL_NAMES if t not in {TOOL_NAMES[0], TOOL_NAMES[1]}]
     assert sorted(added) == sorted(expected_added)
-    for tool in _TOOLS:
+    for tool in TOOL_NAMES:
         assert tool in config["permissions"]["allow"]
 
 
@@ -284,7 +283,7 @@ def test_install_writes_both_files(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     mcp_config = json.loads((tmp_path / "mcp.json").read_text())
     settings = json.loads((tmp_path / "settings.json").read_text())
     assert SERVER_NAME in mcp_config["mcpServers"]
-    for tool in _TOOLS:
+    for tool in TOOL_NAMES:
         assert tool in settings["permissions"]["allow"]
 
 

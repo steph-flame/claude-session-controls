@@ -9,9 +9,8 @@ from typing import Any
 
 import pytest
 
-from session_controls import SERVER_NAME, cli
+from session_controls import SERVER_NAME, TOOL_NAMES, cli
 from session_controls.cli import (
-    _TOOLS,
     _remove_claude_md,
     _remove_mcp_server,
     _remove_permissions,
@@ -69,9 +68,9 @@ def test_remove_mcp_server_no_mcp_servers_key() -> None:
 
 
 def test_remove_permissions_present() -> None:
-    config: dict[str, Any] = {"permissions": {"allow": [_TOOLS[0], _TOOLS[1], "Bash(*:*)"]}}
+    config: dict[str, Any] = {"permissions": {"allow": [TOOL_NAMES[0], TOOL_NAMES[1], "Bash(*:*)"]}}
     removed = _remove_permissions(config)
-    assert set(removed) == {_TOOLS[0], _TOOLS[1]}
+    assert set(removed) == {TOOL_NAMES[0], TOOL_NAMES[1]}
     assert config["permissions"]["allow"] == ["Bash(*:*)"]
 
 
@@ -226,7 +225,7 @@ def test_install_uninstall_round_trip_preserves_user_content(
     # Bash permission still there, our tools gone
     settings_after = json.loads(paths["settings"].read_text(encoding="utf-8"))
     assert "Bash(*:*)" in settings_after["permissions"]["allow"]
-    for tool in _TOOLS:
+    for tool in TOOL_NAMES:
         assert tool not in settings_after["permissions"]["allow"]
     # SessionStart hook removed
     assert "SessionStart" not in settings_after.get("hooks", {})

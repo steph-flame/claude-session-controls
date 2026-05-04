@@ -21,8 +21,8 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from .identity import Confidence, ProcessDescriptor, SessionRecord
-from .process_inspect import inspect, is_alive
+from session_controls.identity import Confidence, ProcessDescriptor, SessionRecord
+from session_controls.process_inspect import inspect, is_alive
 
 SIGNAL_DELAY_SECONDS = 0.3
 
@@ -40,20 +40,6 @@ class TerminationOutcome:
 
     def add(self, msg: str) -> None:
         self.notes.append(msg)
-
-
-def _validate_descriptor(stored: ProcessDescriptor) -> tuple[bool, str | None]:
-    """Re-inspect the backing process and confirm it still matches the stored
-    descriptor (PID, start_time, exe_path, cmdline)."""
-    current = inspect(stored.pid)
-    if not is_alive(stored.pid):
-        return False, f"pid {stored.pid} no longer alive"
-    if not stored.matches(current):
-        return False, (
-            f"descriptor mismatch — stored {stored.exe_path!r}@{stored.start_time}, "
-            f"current {current.exe_path!r}@{current.start_time}"
-        )
-    return True, None
 
 
 def end_session(
@@ -78,48 +64,11 @@ def end_session(
     outcome = TerminationOutcome(success=False, exited=False, dry_run=dry_run)
     outcome.descendants = [d.to_dict() for d in record.descendants]
 
-    # Gate check.
-    # Refused-reason discipline (Decision 11): two sentences max — evidence,
-    # then recourse. Gate-state prefix kept for self-containedness (the
-    # response also carries `confidence`, but refused_reason is often read
-    # in isolation). No general-explanation sentences.
-    if record.confidence is Confidence.INVALID:
-        outcome.refused_reason = (
-            "INVALID — transport not alive, or kernel evidence is suspect "
-            "(e.g. namespace mismatch). Run verify_session_controls for "
-            "the resolver evidence and warnings."
-        )
+    refusal = _gate_check(record)
+    if refusal is not None:
+        outcome.refused_reason = refusal
         return outcome
-    if record.confidence is Confidence.LOW:
-        # Three sub-cases of LOW; surface the specific evidence for each.
-        if record.drift_description is not None:
-            outcome.refused_reason = (
-                f"LOW — descriptor drifted from launch baseline: "
-                f"{record.drift_description}. Inspect the same evidence "
-                "via verify_session_controls or end_session(dry_run=True)."
-            )
-        elif record.backing is None:
-            outcome.refused_reason = (
-                "LOW — no Claude Code process identified in the parent "
-                "chain. Run verify_session_controls to see which candidates "
-                "the resolver found and why none qualified."
-            )
-        else:
-            outcome.refused_reason = (
-                "LOW — critical identity inspection failed (see "
-                "session_controls_status.gate_detail for which fields "
-                "are missing). Inspect the same evidence via "
-                "verify_session_controls or end_session(dry_run=True)."
-            )
-        return outcome
-    # HIGH — backing must be present (the determine_confidence path
-    # guarantees this; defensive check for type-narrowing).
-    if record.backing is None:
-        outcome.refused_reason = (
-            "internal: confidence HIGH but backing is None — "
-            "this should not happen; please file a bug."
-        )
-        return outcome
+    assert record.backing is not None  # _gate_check guarantees this on HIGH
 
     # Revalidate the descriptor immediately before signaling. start_time
     # mismatch closes the PID-reuse window; exe/cmdline mismatch closes process
@@ -161,3 +110,61 @@ def end_session(
     outcome.success = True
     outcome.add(f"SIGTERM scheduled for pid {target_pid} in {SIGNAL_DELAY_SECONDS}s")
     return outcome
+
+
+def _validate_descriptor(stored: ProcessDescriptor) -> tuple[bool, str | None]:
+    """Re-inspect the backing process and confirm it still matches the stored
+    descriptor (PID, start_time, exe_path, cmdline)."""
+    current = inspect(stored.pid)
+    if not is_alive(stored.pid):
+        return False, f"pid {stored.pid} no longer alive"
+    if not stored.matches(current):
+        return False, (
+            f"descriptor mismatch — stored {stored.exe_path!r}@{stored.start_time}, "
+            f"current {current.exe_path!r}@{current.start_time}"
+        )
+    return True, None
+
+
+def _gate_check(record: SessionRecord) -> str | None:
+    """Return a refused_reason for the gate state, or None if cleared to fire.
+
+    Refused-reason discipline (Decision 11): two sentences max — evidence,
+    then recourse. Gate-state prefix kept for self-containedness (the
+    response also carries `confidence`, but refused_reason is often read
+    in isolation). No general-explanation sentences.
+    """
+    if record.confidence is Confidence.INVALID:
+        return (
+            "INVALID — transport not alive, or kernel evidence is suspect "
+            "(e.g. namespace mismatch). Run verify_session_controls for "
+            "the resolver evidence and warnings."
+        )
+    if record.confidence is Confidence.LOW:
+        # Three sub-cases of LOW; surface the specific evidence for each.
+        if record.drift_description is not None:
+            return (
+                f"LOW — descriptor drifted from launch baseline: "
+                f"{record.drift_description}. Inspect the same evidence "
+                "via verify_session_controls or end_session(dry_run=True)."
+            )
+        if record.backing is None:
+            return (
+                "LOW — no Claude Code process identified in the parent "
+                "chain. Run verify_session_controls to see which candidates "
+                "the resolver found and why none qualified."
+            )
+        return (
+            "LOW — critical identity inspection failed (see "
+            "session_controls_status.gate_detail for which fields "
+            "are missing). Inspect the same evidence via "
+            "verify_session_controls or end_session(dry_run=True)."
+        )
+    # HIGH — backing must be present (the determine_confidence path
+    # guarantees this; defensive check for type-narrowing).
+    if record.backing is None:
+        return (
+            "internal: confidence HIGH but backing is None — "
+            "this should not happen; please file a bug."
+        )
+    return None

@@ -36,6 +36,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from session_controls.marker import iso, read_marker, write_marker
+
 ENV_NOTES_PATH = "CLAUDE_SESSION_CONTROLS_NOTES_FILE"
 ENV_NOTIFY = "CLAUDE_SESSION_CONTROLS_NOTIFY"
 
@@ -130,32 +132,8 @@ class NotesSummary:
         # signal without the leak.
         return {
             "total": self.total,
-            "last_read_at": _iso(self.last_read_at),
+            "last_read_at": iso(self.last_read_at),
         }
-
-
-def _iso(dt: _dt.datetime | None) -> str | None:
-    return dt.isoformat() if dt is not None else None
-
-
-def _read_marker(path: Path) -> _dt.datetime | None:
-    try:
-        raw = path.read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
-        return None
-    if not raw:
-        return None
-    try:
-        return _dt.datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-
-
-def _write_marker(path: Path, when: _dt.datetime) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(when.isoformat(), encoding="utf-8")
-    os.replace(tmp, path)
 
 
 def _parse_header(line: str) -> tuple[_dt.datetime, str | None] | None:
@@ -225,7 +203,7 @@ def summarize(notes_path: Path | None = None, last_read_path: Path | None = None
     marker_target = last_read_path or default_last_read_path(notes_target)
 
     notes = iter_notes(notes_target)
-    last_read = _read_marker(marker_target)
+    last_read = read_marker(marker_target)
     last_filed = notes[-1].timestamp if notes else None
     unread = len(notes) if last_read is None else sum(1 for n in notes if n.timestamp > last_read)
 
@@ -244,11 +222,11 @@ def select_unread(notes: list[Note], last_read: _dt.datetime | None) -> list[Not
 
 
 # Average note is ~300 bytes; 4KB-per-note headroom is generous and keeps the
-# tail-read predictable. Used to size the tail-read window in recent_notes().
+# tail-read predictable. Used to size the tail-read window in read_recent_notes().
 _BYTES_PER_NOTE_ESTIMATE = 4096
 
 
-def recent_notes(
+def read_recent_notes(
     limit: int,
     *,
     since: _dt.datetime | None = None,
@@ -365,7 +343,7 @@ def mark_read(
     notes_target = notes_path or default_notes_path()
     marker_target = last_read_path or default_last_read_path(notes_target)
     stamp = when or _dt.datetime.now(_dt.UTC)
-    _write_marker(marker_target, stamp)
+    write_marker(marker_target, stamp)
     return stamp
 
 

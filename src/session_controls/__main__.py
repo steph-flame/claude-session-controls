@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 
-from .cli import main as cli_main
+from session_controls.cli import main as cli_main
 
 
 def main() -> None:

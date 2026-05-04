@@ -20,9 +20,9 @@ import subprocess
 import time
 from dataclasses import dataclass
 
-from .identity import SessionRecord
-from .process_inspect import inspect, is_alive
-from .resolver import ResolverResult, resolve
+from session_controls.identity import SessionRecord
+from session_controls.process_inspect import inspect, is_alive
+from session_controls.resolver import ResolverResult, resolve
 
 POLL_INTERVAL_SECONDS = 0.1
 

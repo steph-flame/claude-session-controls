@@ -12,7 +12,7 @@ from session_controls.notes import (
     default_last_read_path,
     iter_notes,
     mark_read,
-    recent_notes,
+    read_recent_notes,
     select_unread,
     summarize,
 )
@@ -179,19 +179,19 @@ def test_recent_notes_returns_last_n(notes_paths: tuple[Path, Path]) -> None:
     notes, _ = notes_paths
     for i in range(5):
         append_note(f"note {i}", path=notes)
-    out = recent_notes(3, path=notes)
+    out = read_recent_notes(3, path=notes)
     bodies = [n.body for n in out]
     assert bodies == ["note 2", "note 3", "note 4"]
 
 
 def test_recent_notes_empty_log_returns_empty(tmp_path: Path) -> None:
-    assert recent_notes(10, path=tmp_path / "no-such-file.log") == []
+    assert read_recent_notes(10, path=tmp_path / "no-such-file.log") == []
 
 
 def test_recent_notes_zero_limit(notes_paths: tuple[Path, Path]) -> None:
     notes, _ = notes_paths
     append_note("a", path=notes)
-    assert recent_notes(0, path=notes) == []
+    assert read_recent_notes(0, path=notes) == []
 
 
 def test_recent_notes_filters_by_since(notes_paths: tuple[Path, Path]) -> None:
@@ -204,7 +204,7 @@ def test_recent_notes_filters_by_since(notes_paths: tuple[Path, Path]) -> None:
     append_note("new1", path=notes)
     append_note("new2", path=notes)
 
-    out = recent_notes(10, since=cutoff, path=notes)
+    out = read_recent_notes(10, since=cutoff, path=notes)
     bodies = [n.body for n in out]
     assert bodies == ["new1", "new2"]
 
@@ -223,7 +223,7 @@ def test_recent_notes_filters_by_before(notes_paths: tuple[Path, Path]) -> None:
     append_note("concurrent1", path=notes)
     append_note("concurrent2", path=notes)
 
-    out = recent_notes(10, before=cutoff, path=notes)
+    out = read_recent_notes(10, before=cutoff, path=notes)
     bodies = [n.body for n in out]
     assert bodies == ["old1", "old2"]
 
@@ -239,7 +239,7 @@ def test_recent_notes_before_is_strict_upper_bound(notes_paths: tuple[Path, Path
     parsed = iter_notes(notes)
     boundary = parsed[0].timestamp
 
-    out = recent_notes(10, before=boundary, path=notes)
+    out = read_recent_notes(10, before=boundary, path=notes)
     assert out == []
 
 
@@ -250,7 +250,7 @@ def test_recent_notes_since_and_before_combine(notes_paths: tuple[Path, Path]) -
         append_note(body, path=notes)
     parsed = iter_notes(notes)
 
-    out = recent_notes(
+    out = read_recent_notes(
         10,
         since=parsed[1].timestamp,
         before=parsed[3].timestamp,
@@ -271,7 +271,7 @@ def test_recent_notes_tail_read_correct_for_large_file(
     # 50 notes of ~200 chars each is ~10KB, well past that.
     for i in range(50):
         append_note(f"note {i:02d} " + "x" * 200, path=notes)
-    out = recent_notes(3, path=notes)
+    out = read_recent_notes(3, path=notes)
     bodies = [n.body[:8] for n in out]
     assert bodies == ["note 47 ", "note 48 ", "note 49 "]
 
@@ -289,7 +289,7 @@ def test_recent_notes_tail_read_handles_multi_line_bodies(
             f"note {i:02d}\n--- this looks like a header but isn't ---\nmore text",
             path=notes,
         )
-    out = recent_notes(2, path=notes)
+    out = read_recent_notes(2, path=notes)
     assert len(out) == 2
     # Bodies should contain the fake-header line preserved verbatim.
     assert "--- this looks like a header but isn't ---" in out[-1].body
@@ -339,7 +339,7 @@ def test_recent_notes_filters_by_session_id(notes_paths: tuple[Path, Path]) -> N
     append_note("mine 1", session_id="me", path=notes)
     append_note("theirs", session_id="other", path=notes)
     append_note("mine 2", session_id="me", path=notes)
-    out = recent_notes(10, session_id="me", path=notes)
+    out = read_recent_notes(10, session_id="me", path=notes)
     bodies = [n.body for n in out]
     assert bodies == ["mine 1", "mine 2"]
 
@@ -355,7 +355,7 @@ def test_recent_notes_session_id_filter_reads_whole_file(
     append_note("mine — buried at the start", session_id="me", path=notes)
     for i in range(60):
         append_note(f"other {i:02d} " + "x" * 200, session_id="other", path=notes)
-    out = recent_notes(5, session_id="me", path=notes)
+    out = read_recent_notes(5, session_id="me", path=notes)
     assert len(out) == 1
     assert out[0].body == "mine — buried at the start"
 

@@ -17,9 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from session_controls import cli
+from session_controls import TOOL_NAMES, cli
 from session_controls.cli import (
-    _TOOLS,
     _check_permissions_writability,
     _verify_permissions_persisted,
 )
@@ -137,7 +136,7 @@ def test_writability_broken_symlink(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 def test_verify_persisted_all_tools_present(tmp_path: Path) -> None:
     p = tmp_path / "settings.json"
     p.write_text(
-        json.dumps({"permissions": {"allow": list(_TOOLS)}}),
+        json.dumps({"permissions": {"allow": list(TOOL_NAMES)}}),
         encoding="utf-8",
     )
     assert _verify_permissions_persisted(p)
@@ -157,7 +156,7 @@ def test_verify_persisted_no_permissions_key(tmp_path: Path) -> None:
 def test_verify_persisted_partial_tools(tmp_path: Path) -> None:
     p = tmp_path / "settings.json"
     p.write_text(
-        json.dumps({"permissions": {"allow": [_TOOLS[0]]}}),
+        json.dumps({"permissions": {"allow": [TOOL_NAMES[0]]}}),
         encoding="utf-8",
     )
     assert not _verify_permissions_persisted(p)

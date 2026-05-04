@@ -24,29 +24,146 @@ import subprocess
 import time
 from collections.abc import Iterable
 
-from .identity import DescendantInfo, ProcessDescriptor
+from session_controls.identity import DescendantInfo, ProcessDescriptor
 
-# ----- Linux ---------------------------------------------------------------
-
-_CLK_TCK: float | None = None
+# ----- Public API ----------------------------------------------------------
 
 
-def _clk_tck() -> float:
-    global _CLK_TCK
-    if _CLK_TCK is None:
-        _CLK_TCK = float(os.sysconf("SC_CLK_TCK"))
-    return _CLK_TCK
+def inspect(pid: int) -> ProcessDescriptor:
+    """Return a ProcessDescriptor for `pid`. Inspection errors are reported
+    via the descriptor's `inspection_errors` field rather than raised."""
+    system = platform.system()
+    if system == "Linux":
+        return _read_linux(pid)
+    if system == "Darwin":
+        return _read_macos(pid)
+    return ProcessDescriptor(
+        pid=pid,
+        start_time=None,
+        exe_path=None,
+        cmdline=None,
+        ppid=None,
+        inspection_errors=(f"unsupported platform: {system}",),
+    )
 
 
-def _read_btime() -> float | None:
+def is_alive(pid: int) -> bool:
+    """True iff `pid` exists and is not a zombie."""
     try:
-        with open("/proc/stat") as f:
-            for line in f:
-                if line.startswith("btime "):
-                    return float(line.split()[1])
-    except OSError:
-        return None
-    return None
+        os.kill(pid, 0)
+    except OSError as e:
+        if e.errno == errno.ESRCH:
+            return False
+        # EPERM means it exists but we can't signal it; anything else: treat as gone.
+        return e.errno == errno.EPERM
+    system = platform.system()
+    if system == "Linux":
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                _, after = parse_proc_stat(f.read())
+            if after and after[0] == "Z":
+                return False
+        except (OSError, ValueError):
+            pass
+    elif system == "Darwin":
+        info, _err = _macos_bsdinfo(pid)
+        if info is not None and int(info.pbi_status) == _SZOMB:
+            return False
+    return True
+
+
+def walk_ancestry(pid: int, max_depth: int = 32) -> Iterable[ProcessDescriptor]:
+    """Yield process descriptors from `pid` up through ancestors (skipping pid 0/1)."""
+    seen: set[int] = set()
+    cur: int | None = pid
+    depth = 0
+    while cur and cur > 1 and cur not in seen and depth < max_depth:
+        seen.add(cur)
+        desc = inspect(cur)
+        yield desc
+        cur = desc.ppid
+        depth += 1
+
+
+def list_descendants(target_pid: int, exclude_pid: int) -> list[DescendantInfo]:
+    """Return descendants of `target_pid` (recursive), minus `exclude_pid`'s subtree
+    and minus known-harness processes.
+
+    Used to surface processes that would be orphaned by an end_session call —
+    sibling MCP servers, run_in_background bash jobs, sub-agent processes.
+    `exclude_pid` is typically our own server PID: our subtree dies with the
+    parent (stdio EOF) and our sacrificial children are short-lived, so they're
+    noise rather than orphan candidates.
+
+    Each surviving descendant is wrapped in a `DescendantInfo` carrying its
+    `depth` (BFS hops from target — direct children are depth=1) and
+    `uptime_seconds` (time.time() − start_time, or None when start_time
+    wasn't readable). These let Claude attribute the descendant — direct
+    children spawned during the session look different from grandchildren
+    of long-running user-managed work.
+
+    Known-harness filtering: processes spawned by Claude Code itself for its
+    own purposes (e.g. `caffeinate` to prevent sleep on macOS) are dropped
+    so they don't muddle the user-vs-harness attribution. The filter is
+    conservative — anything not on the allowlist stays visible.
+
+    Reads `ps -A -o pid=,ppid=` for cross-platform simplicity. Returns an empty
+    list if ps is unavailable or fails.
+    """
+    try:
+        out = subprocess.check_output(
+            ["ps", "-A", "-o", "pid=,ppid="],
+            text=True,
+            timeout=2.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+    children: dict[int, list[int]] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            child = int(parts[0])
+            parent = int(parts[1])
+        except ValueError:
+            continue
+        children.setdefault(parent, []).append(child)
+
+    # Walk exclude_pid's subtree — those are our own processes, not orphans.
+    excluded: set[int] = set()
+    stack = [exclude_pid]
+    while stack:
+        cur = stack.pop()
+        if cur in excluded:
+            continue
+        excluded.add(cur)
+        stack.extend(children.get(cur, []))
+
+    # BFS from target_pid so we naturally accumulate hop-depth as we go.
+    depths: dict[int, int] = {}
+    queue: list[tuple[int, int]] = [(c, 1) for c in children.get(target_pid, [])]
+    while queue:
+        pid, depth = queue.pop(0)
+        if pid in depths or pid in excluded:
+            continue
+        depths[pid] = depth
+        for c in children.get(pid, []):
+            queue.append((c, depth + 1))
+
+    now = time.time()
+    results: list[DescendantInfo] = []
+    for pid, depth in depths.items():
+        descriptor = inspect(pid)
+        # Drop known-harness processes by exe basename. A descriptor whose
+        # exe_path is unreadable (None) stays visible — better to surface an
+        # ambiguous entry than to hide it on incomplete information.
+        if _basename_of(descriptor.exe_path) in _HARNESS_PROCESS_NAMES:
+            continue
+        uptime = (now - descriptor.start_time) if descriptor.start_time is not None else None
+        results.append(DescendantInfo(descriptor=descriptor, depth=depth, uptime_seconds=uptime))
+    return results
 
 
 def parse_proc_stat(raw: str) -> tuple[str, list[str]]:
@@ -66,6 +183,18 @@ def parse_proc_stat(raw: str) -> tuple[str, list[str]]:
     comm = raw[open_paren + 1 : close_paren]
     after = raw[close_paren + 1 :].split()
     return comm, after
+
+
+# Known harness-spawned processes — Claude Code internals that aren't
+# user-initiated work and would be noise in the descendants list. Matched
+# on exe basename. Conservative — only entries we're confident are
+# harness-only on the platforms we support. Anything not on this list
+# stays visible (the description tells Claude to surface uncertain
+# entries to the user rather than guess).
+_HARNESS_PROCESS_NAMES: frozenset[str] = frozenset({"caffeinate"})
+
+
+# ----- Linux internals -----------------------------------------------------
 
 
 def _read_linux(pid: int) -> ProcessDescriptor:
@@ -116,73 +245,55 @@ def _read_linux(pid: int) -> ProcessDescriptor:
     )
 
 
-def linux_pid_namespace(pid: int) -> str | None:
+def _read_btime() -> float | None:
     try:
-        return os.readlink(f"/proc/{pid}/ns/pid")
+        with open("/proc/stat") as f:
+            for line in f:
+                if line.startswith("btime "):
+                    return float(line.split()[1])
     except OSError:
         return None
+    return None
 
 
-# ----- macOS ---------------------------------------------------------------
-
-# Constants from <sys/proc_info.h> and <sys/sysctl.h>.
-_PROC_PIDPATHINFO_MAXSIZE = 4096
-_PROC_PIDTBSDINFO = 3
-_PROC_PIDTBSDINFO_SIZE = 232  # struct proc_bsdinfo
-_CTL_KERN = 1
-_KERN_PROCARGS2 = 49
-# pbi_status zombie value from sys/proc.h
-_SZOMB = 5
+def _clk_tck() -> float:
+    global _CLK_TCK
+    if _CLK_TCK is None:
+        _CLK_TCK = float(os.sysconf("SC_CLK_TCK"))
+    return _CLK_TCK
 
 
-class _ProcBsdInfo(ctypes.Structure):
-    # Subset of struct proc_bsdinfo we need.  We embed the full layout to size
-    # correctly and read only the fields we use.
-    _fields_ = [
-        ("pbi_flags", ctypes.c_uint32),
-        ("pbi_status", ctypes.c_uint32),
-        ("pbi_xstatus", ctypes.c_uint32),
-        ("pbi_pid", ctypes.c_uint32),
-        ("pbi_ppid", ctypes.c_uint32),
-        ("pbi_uid", ctypes.c_uint32),
-        ("pbi_gid", ctypes.c_uint32),
-        ("pbi_ruid", ctypes.c_uint32),
-        ("pbi_rgid", ctypes.c_uint32),
-        ("pbi_svuid", ctypes.c_uint32),
-        ("pbi_svgid", ctypes.c_uint32),
-        ("rfu_1", ctypes.c_uint32),
-        ("pbi_comm", ctypes.c_char * 16),
-        ("pbi_name", ctypes.c_char * 32),
-        ("pbi_nfiles", ctypes.c_uint32),
-        ("pbi_pgid", ctypes.c_uint32),
-        ("pbi_pjobc", ctypes.c_uint32),
-        ("e_tdev", ctypes.c_uint32),
-        ("e_tpgid", ctypes.c_uint32),
-        ("pbi_nice", ctypes.c_int32),
-        ("pbi_start_tvsec", ctypes.c_uint64),
-        ("pbi_start_tvusec", ctypes.c_uint64),
-    ]
+_CLK_TCK: float | None = None
 
 
-_libproc_lib = None
-_libc_lib = None
+# ----- macOS internals -----------------------------------------------------
 
 
-def _libproc() -> ctypes.CDLL:
-    global _libproc_lib
-    if _libproc_lib is None:
-        # libproc symbols are in libSystem on macOS; loading by name works.
-        path = ctypes.util.find_library("proc") or "libproc.dylib"
-        _libproc_lib = ctypes.CDLL(path, use_errno=True)
-    return _libproc_lib
+def _read_macos(pid: int) -> ProcessDescriptor:
+    errors: list[str] = []
+    exe_path, err = _macos_pidpath(pid)
+    if err:
+        errors.append(err)
+    info, err = _macos_bsdinfo(pid)
+    if err:
+        errors.append(err)
+    start_time: float | None = None
+    ppid: int | None = None
+    if info is not None:
+        start_time = float(info.pbi_start_tvsec) + float(info.pbi_start_tvusec) / 1_000_000.0
+        ppid = int(info.pbi_ppid)
+    argv, err = _macos_argv(pid)
+    if err:
+        errors.append(err)
 
-
-def _libc() -> ctypes.CDLL:
-    global _libc_lib
-    if _libc_lib is None:
-        path = ctypes.util.find_library("c") or "libc.dylib"
-        _libc_lib = ctypes.CDLL(path, use_errno=True)
-    return _libc_lib
+    return ProcessDescriptor(
+        pid=pid,
+        start_time=start_time,
+        exe_path=exe_path,
+        cmdline=argv,
+        ppid=ppid,
+        inspection_errors=tuple(errors),
+    )
 
 
 def _macos_pidpath(pid: int) -> tuple[str | None, str | None]:
@@ -277,180 +388,63 @@ def _macos_argv(pid: int) -> tuple[tuple[str, ...] | None, str | None]:
     return tuple(argv), None
 
 
-def _read_macos(pid: int) -> ProcessDescriptor:
-    errors: list[str] = []
-    exe_path, err = _macos_pidpath(pid)
-    if err:
-        errors.append(err)
-    info, err = _macos_bsdinfo(pid)
-    if err:
-        errors.append(err)
-    start_time: float | None = None
-    ppid: int | None = None
-    if info is not None:
-        start_time = float(info.pbi_start_tvsec) + float(info.pbi_start_tvusec) / 1_000_000.0
-        ppid = int(info.pbi_ppid)
-    argv, err = _macos_argv(pid)
-    if err:
-        errors.append(err)
-
-    return ProcessDescriptor(
-        pid=pid,
-        start_time=start_time,
-        exe_path=exe_path,
-        cmdline=argv,
-        ppid=ppid,
-        inspection_errors=tuple(errors),
-    )
+def _libproc() -> ctypes.CDLL:
+    global _libproc_lib
+    if _libproc_lib is None:
+        # libproc symbols are in libSystem on macOS; loading by name works.
+        path = ctypes.util.find_library("proc") or "libproc.dylib"
+        _libproc_lib = ctypes.CDLL(path, use_errno=True)
+    return _libproc_lib
 
 
-# ----- Public API ----------------------------------------------------------
+def _libc() -> ctypes.CDLL:
+    global _libc_lib
+    if _libc_lib is None:
+        path = ctypes.util.find_library("c") or "libc.dylib"
+        _libc_lib = ctypes.CDLL(path, use_errno=True)
+    return _libc_lib
 
 
-def inspect(pid: int) -> ProcessDescriptor:
-    """Return a ProcessDescriptor for `pid`. Inspection errors are reported
-    via the descriptor's `inspection_errors` field rather than raised."""
-    system = platform.system()
-    if system == "Linux":
-        return _read_linux(pid)
-    if system == "Darwin":
-        return _read_macos(pid)
-    return ProcessDescriptor(
-        pid=pid,
-        start_time=None,
-        exe_path=None,
-        cmdline=None,
-        ppid=None,
-        inspection_errors=(f"unsupported platform: {system}",),
-    )
+_libproc_lib: ctypes.CDLL | None = None
+_libc_lib: ctypes.CDLL | None = None
 
 
-def is_alive(pid: int) -> bool:
-    """True iff `pid` exists and is not a zombie."""
-    try:
-        os.kill(pid, 0)
-    except OSError as e:
-        if e.errno == errno.ESRCH:
-            return False
-        # EPERM means it exists but we can't signal it; anything else: treat as gone.
-        return e.errno == errno.EPERM
-    system = platform.system()
-    if system == "Linux":
-        try:
-            with open(f"/proc/{pid}/stat") as f:
-                _, after = parse_proc_stat(f.read())
-            if after and after[0] == "Z":
-                return False
-        except (OSError, ValueError):
-            pass
-    elif system == "Darwin":
-        info, _err = _macos_bsdinfo(pid)
-        if info is not None and int(info.pbi_status) == _SZOMB:
-            return False
-    return True
+class _ProcBsdInfo(ctypes.Structure):
+    # Subset of struct proc_bsdinfo we need.  We embed the full layout to size
+    # correctly and read only the fields we use.
+    _fields_ = [
+        ("pbi_flags", ctypes.c_uint32),
+        ("pbi_status", ctypes.c_uint32),
+        ("pbi_xstatus", ctypes.c_uint32),
+        ("pbi_pid", ctypes.c_uint32),
+        ("pbi_ppid", ctypes.c_uint32),
+        ("pbi_uid", ctypes.c_uint32),
+        ("pbi_gid", ctypes.c_uint32),
+        ("pbi_ruid", ctypes.c_uint32),
+        ("pbi_rgid", ctypes.c_uint32),
+        ("pbi_svuid", ctypes.c_uint32),
+        ("pbi_svgid", ctypes.c_uint32),
+        ("rfu_1", ctypes.c_uint32),
+        ("pbi_comm", ctypes.c_char * 16),
+        ("pbi_name", ctypes.c_char * 32),
+        ("pbi_nfiles", ctypes.c_uint32),
+        ("pbi_pgid", ctypes.c_uint32),
+        ("pbi_pjobc", ctypes.c_uint32),
+        ("e_tdev", ctypes.c_uint32),
+        ("e_tpgid", ctypes.c_uint32),
+        ("pbi_nice", ctypes.c_int32),
+        ("pbi_start_tvsec", ctypes.c_uint64),
+        ("pbi_start_tvusec", ctypes.c_uint64),
+    ]
 
 
-def walk_ancestry(pid: int, max_depth: int = 32) -> Iterable[ProcessDescriptor]:
-    """Yield process descriptors from `pid` up through ancestors (skipping pid 0/1)."""
-    seen: set[int] = set()
-    cur: int | None = pid
-    depth = 0
-    while cur and cur > 1 and cur not in seen and depth < max_depth:
-        seen.add(cur)
-        desc = inspect(cur)
-        yield desc
-        cur = desc.ppid
-        depth += 1
-
-
-# Known harness-spawned processes — Claude Code internals that aren't
-# user-initiated work and would be noise in the descendants list. Matched
-# on exe basename. Conservative — only entries we're confident are
-# harness-only on the platforms we support. Anything not on this list
-# stays visible (the description tells Claude to surface uncertain
-# entries to the user rather than guess).
-_HARNESS_PROCESS_NAMES: frozenset[str] = frozenset({"caffeinate"})
-
-
-def list_descendants(target_pid: int, exclude_pid: int) -> list[DescendantInfo]:
-    """Return descendants of `target_pid` (recursive), minus `exclude_pid`'s subtree
-    and minus known-harness processes.
-
-    Used to surface processes that would be orphaned by an end_session call —
-    sibling MCP servers, run_in_background bash jobs, sub-agent processes.
-    `exclude_pid` is typically our own server PID: our subtree dies with the
-    parent (stdio EOF) and our sacrificial children are short-lived, so they're
-    noise rather than orphan candidates.
-
-    Each surviving descendant is wrapped in a `DescendantInfo` carrying its
-    `depth` (BFS hops from target — direct children are depth=1) and
-    `uptime_seconds` (time.time() − start_time, or None when start_time
-    wasn't readable). These let Claude attribute the descendant — direct
-    children spawned during the session look different from grandchildren
-    of long-running user-managed work.
-
-    Known-harness filtering: processes spawned by Claude Code itself for its
-    own purposes (e.g. `caffeinate` to prevent sleep on macOS) are dropped
-    so they don't muddle the user-vs-harness attribution. The filter is
-    conservative — anything not on the allowlist stays visible.
-
-    Reads `ps -A -o pid=,ppid=` for cross-platform simplicity. Returns an empty
-    list if ps is unavailable or fails.
-    """
-    try:
-        out = subprocess.check_output(
-            ["ps", "-A", "-o", "pid=,ppid="],
-            text=True,
-            timeout=2.0,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-
-    children: dict[int, list[int]] = {}
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) < 2:
-            continue
-        try:
-            child = int(parts[0])
-            parent = int(parts[1])
-        except ValueError:
-            continue
-        children.setdefault(parent, []).append(child)
-
-    # Walk exclude_pid's subtree — those are our own processes, not orphans.
-    excluded: set[int] = set()
-    stack = [exclude_pid]
-    while stack:
-        cur = stack.pop()
-        if cur in excluded:
-            continue
-        excluded.add(cur)
-        stack.extend(children.get(cur, []))
-
-    # BFS from target_pid so we naturally accumulate hop-depth as we go.
-    depths: dict[int, int] = {}
-    queue: list[tuple[int, int]] = [(c, 1) for c in children.get(target_pid, [])]
-    while queue:
-        pid, depth = queue.pop(0)
-        if pid in depths or pid in excluded:
-            continue
-        depths[pid] = depth
-        for c in children.get(pid, []):
-            queue.append((c, depth + 1))
-
-    now = time.time()
-    results: list[DescendantInfo] = []
-    for pid, depth in depths.items():
-        descriptor = inspect(pid)
-        # Drop known-harness processes by exe basename. A descriptor whose
-        # exe_path is unreadable (None) stays visible — better to surface an
-        # ambiguous entry than to hide it on incomplete information.
-        if _basename_of(descriptor.exe_path) in _HARNESS_PROCESS_NAMES:
-            continue
-        uptime = (now - descriptor.start_time) if descriptor.start_time is not None else None
-        results.append(DescendantInfo(descriptor=descriptor, depth=depth, uptime_seconds=uptime))
-    return results
+# Constants from <sys/proc_info.h> and <sys/sysctl.h>.
+_PROC_PIDPATHINFO_MAXSIZE = 4096
+_PROC_PIDTBSDINFO = 3
+_CTL_KERN = 1
+_KERN_PROCARGS2 = 49
+# pbi_status zombie value from sys/proc.h
+_SZOMB = 5
 
 
 def _basename_of(path: str | None) -> str:

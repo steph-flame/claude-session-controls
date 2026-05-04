@@ -19,7 +19,7 @@ import os
 import platform
 from dataclasses import dataclass, field
 
-from .process_inspect import inspect, walk_ancestry
+from session_controls.process_inspect import inspect, walk_ancestry
 
 # Known shells/launchers/wrappers we walk *through* but don't treat as the target.
 SKIP_NAMES = frozenset(
@@ -134,36 +134,7 @@ def resolve(*, peer_pid: int | None) -> ResolverResult:
             if peer_desc.inspection_errors:
                 c.add(0, f"peer inspection errors: {peer_desc.inspection_errors}")
 
-    # Filter: positive Claude identification is required. Without a claude-hint
-    # match somewhere, we'd be picking a target by elimination — exactly the
-    # path that turns "Claude isn't in this tree" into "kill the wrapper".
-    hint_candidates = [c for c in candidates.values() if c.has_hint]
-    if not hint_candidates:
-        return ResolverResult(
-            chosen_pid=None,
-            reason="no candidate matched a Claude Code hint — refusing rather than guessing",
-            candidates=list(candidates.values()),
-        )
-
-    eligible = [c for c in hint_candidates if c.score >= ABS_THRESHOLD]
-    if not eligible:
-        return ResolverResult(
-            chosen_pid=None,
-            reason=f"no hint-matched candidate met threshold (>= {ABS_THRESHOLD})",
-            candidates=list(candidates.values()),
-        )
-    eligible.sort(key=lambda c: c.score, reverse=True)
-    if len(eligible) >= 2 and eligible[0].score - eligible[1].score < MARGIN:
-        return ResolverResult(
-            chosen_pid=None,
-            reason=f"top two hint-matched candidates within margin {MARGIN}: refusing (multiple equal candidates)",
-            candidates=eligible,
-        )
-    return ResolverResult(
-        chosen_pid=eligible[0].pid,
-        reason="ok",
-        candidates=eligible,
-    )
+    return _select_winner(candidates)
 
 
 def detect_environment_warnings(peer_pid: int | None) -> tuple[str, ...]:
@@ -199,3 +170,39 @@ def detect_environment_warnings(peer_pid: int | None) -> tuple[str, ...]:
             break
 
     return tuple(warnings)
+
+
+def _select_winner(candidates: dict[int, Candidate]) -> ResolverResult:
+    """Apply the resolver's pick rules to scored candidates.
+
+    Three refusal paths in order: no claude-hint match anywhere; no
+    hint-matched candidate at threshold; top two within margin. A pick
+    requires all three to pass — positive identification, threshold cleared,
+    and a clear winner.
+    """
+    hint_candidates = [c for c in candidates.values() if c.has_hint]
+    if not hint_candidates:
+        return ResolverResult(
+            chosen_pid=None,
+            reason="no candidate matched a Claude Code hint — refusing rather than guessing",
+            candidates=list(candidates.values()),
+        )
+    eligible = [c for c in hint_candidates if c.score >= ABS_THRESHOLD]
+    if not eligible:
+        return ResolverResult(
+            chosen_pid=None,
+            reason=f"no hint-matched candidate met threshold (>= {ABS_THRESHOLD})",
+            candidates=list(candidates.values()),
+        )
+    eligible.sort(key=lambda c: c.score, reverse=True)
+    if len(eligible) >= 2 and eligible[0].score - eligible[1].score < MARGIN:
+        return ResolverResult(
+            chosen_pid=None,
+            reason=f"top two hint-matched candidates within margin {MARGIN}: refusing (multiple equal candidates)",
+            candidates=eligible,
+        )
+    return ResolverResult(
+        chosen_pid=eligible[0].pid,
+        reason="ok",
+        candidates=eligible,
+    )
