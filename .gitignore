@@ -35,6 +35,7 @@ haiku's ideas.md
 revealed_preferences_ideas.md
 transcript.md
 transcript-2.md
+testing-plan.md
 
 # Project-scope MCP install (the maintainer's local
 # `session-controls install --project` writes here with an absolute

@@ -857,8 +857,8 @@ What hasn't been validated at scale:
 
 - **The within-session behavioral prediction.** Section 7's
   central claim — that affordance presence shapes behavior even
-  without invocation — needs large-N testing. Sketch-level
-  testing plan exists in `testing-plan.md`; not yet executed.
+  without invocation — needs large-N testing. Sketch-level testing
+  plan exists; not yet executed.
 - **Adopter-environment coverage.** Used so far by the maintainer
   and a small number of friends. The structured refusal posture
   means unusual deployment shapes should surface as visible
