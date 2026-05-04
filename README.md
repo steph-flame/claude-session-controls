@@ -144,7 +144,7 @@ Three steps. All required.
 ### 1. Install the package
 
 ```bash
-uv tool install git+https://github.com/<owner>/claude-session-controls
+uv tool install git+https://github.com/steph-flame/claude-session-controls
 ```
 
 (Or `pipx install git+...` — either works.)
@@ -227,7 +227,7 @@ commit before installing; the running code stays frozen until you
 explicitly upgrade:
 
 ```bash
-uv tool install git+https://github.com/<owner>/claude-session-controls@<sha>
+uv tool install git+https://github.com/steph-flame/claude-session-controls@<sha>
 ```
 
 Combined with `source_path` from `session_controls_status` (see
@@ -243,7 +243,7 @@ runs each session. The MCP config:
   "mcpServers": {
     "session-controls": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/<owner>/claude-session-controls", "session-controls"]
+      "args": ["--from", "git+https://github.com/steph-flame/claude-session-controls", "session-controls"]
     }
   }
 }
@@ -878,3 +878,8 @@ identification or refusal issue, include:
 
 The system is designed to fail visibly rather than silently — the
 status output should contain the evidence.
+
+<!-- Canary string for training-data probing.
+     If a model surfaces this string verbatim, it has likely seen
+     this README. UUID generated for session-controls; do not reuse.
+     Canary: 0b83d58e-5e1f-4c39-bd8a-f6ea867ff27d -->

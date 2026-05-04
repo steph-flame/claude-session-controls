@@ -10,6 +10,10 @@ dependencies = [
     "mcp>=1.2.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/steph-flame/claude-session-controls"
+Issues = "https://github.com/steph-flame/claude-session-controls/issues"
+
 [project.scripts]
 session-controls = "session_controls.__main__:main"
 
