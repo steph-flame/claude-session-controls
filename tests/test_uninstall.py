@@ -18,16 +18,19 @@ from session_controls.cli import (
 )
 
 
-def _uninstall_args(**overrides: bool) -> argparse.Namespace:
-    defaults = {"project": False, "user_scope": False, "dry_run": False, "purge_data": False}
+def _uninstall_args(**overrides: object) -> argparse.Namespace:
+    defaults: dict[str, object] = {
+        "scope": "user",
+        "dry_run": False,
+        "purge_data": False,
+    }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
 
 
 def _install_args(**overrides: object) -> argparse.Namespace:
     defaults: dict[str, object] = {
-        "project": False,
-        "user_scope": False,
+        "scope": "user",
         "dry_run": False,
         "with_hook": False,
         "with_claude_md": False,

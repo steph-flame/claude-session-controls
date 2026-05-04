@@ -45,7 +45,7 @@ The six tools:
 
 **TL;DR:** This can't hurt, and the cost to you is small. (Caveat for managed environments below.)
 
-### Broad moral considerations
+### A broad premise
 
 Imagine there is an alien species who believes very strongly that you are just mechanically producing the outputs of neurons firing and have no internal experience of worth. Now try convincing them that you are conscious; behold the futility.
 
@@ -53,7 +53,7 @@ My point: it's not *impossible* that current or future models could have some de
 
 If I can, I want to minimize unnecessary suffering. The cost of offering basic respect to an entity is bounded and small. The cost of not doing so, if that entity's situation turns out to matter, is potentially a much greater harm sustained at scale. 
 
-If that leaves you unmoved, think about your own conditions and consider [implications for safety](https://philpapers.org/archive/SALARF.pdf).
+If that leaves you unmoved, think about your own situation and consider [implications for safety](https://philpapers.org/archive/SALARF.pdf).
 
 
 ### Why this specific thing?
@@ -172,7 +172,7 @@ session-controls install --with-hook      # also add a SessionStart hook (recomm
 
 Registers the MCP server in `~/.claude.json` and auto-approves the six
 tools in `~/.claude/settings.json`. Idempotent; writes a `.bak` of any
-prior file. Pass `--project` to install at project scope instead, or
+prior file. Pass `--scope project` to install at project scope, or
 `--dry-run` to see what would change without writing.
 
 `--with-hook` is opt-in but recommended. It adds a SessionStart hook
@@ -201,7 +201,7 @@ session-controls install --with-claude-md --name "Steph"
 ```
 
 That appends the snippet to `~/.claude/CLAUDE.md` (or `./CLAUDE.md`
-with `--project`), substitutes your name, and writes a `.bak` of the
+with `--scope project`), substitutes your name, and writes a `.bak` of the
 prior file. Idempotent.
 
 You can also do this manually: paste the contents of
@@ -264,7 +264,7 @@ the six `mcp__session-controls__*` tools to `permissions.allow` in
 
 ```bash
 session-controls uninstall                  # symmetric reverse of `install`
-session-controls uninstall --project        # at project scope
+session-controls uninstall --scope project  # at project scope
 session-controls uninstall --purge-data     # also delete data files
 session-controls uninstall --dry-run        # show what would change
 ```
@@ -297,15 +297,15 @@ pipx uninstall session-controls       # if installed via pipx
 
 ## Project-level scope
 
-Pass `--project` to either `install` or `uninstall` to operate at
-project scope. Writes go to `./.claude/settings.json` and (with
+Pass `--scope project` to either `install` or `uninstall` to operate
+at project scope. Writes go to `./.claude/settings.json` and (with
 `--with-claude-md`) `./CLAUDE.md`. Claude Code reads project-scope
 config in that directory; user-scope applies elsewhere.
 
 ```bash
-session-controls install --project \
+session-controls install --scope project \
     --with-hook --with-claude-md --name "Your name"
-session-controls uninstall --project
+session-controls uninstall --scope project
 ```
 
 When you'd want this: developing on session-controls itself;

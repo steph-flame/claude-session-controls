@@ -187,8 +187,7 @@ def test_install_with_claude_md_writes_user_file(
     monkeypatch.setattr(cli, "_user_claude_md_path", lambda: tmp_path / "CLAUDE.md")
 
     args = argparse.Namespace(
-        project=False,
-        user_scope=False,
+        scope="user",
         dry_run=False,
         with_hook=False,
         with_claude_md=True,
@@ -213,8 +212,7 @@ def test_install_with_claude_md_without_pivot(
     monkeypatch.setattr(cli, "_user_claude_md_path", lambda: tmp_path / "CLAUDE.md")
 
     args = argparse.Namespace(
-        project=False,
-        user_scope=False,
+        scope="user",
         dry_run=False,
         with_hook=False,
         with_claude_md=True,
@@ -236,8 +234,7 @@ def test_install_with_claude_md_idempotent(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.setattr(cli, "_user_claude_md_path", lambda: tmp_path / "CLAUDE.md")
 
     args = argparse.Namespace(
-        project=False,
-        user_scope=False,
+        scope="user",
         dry_run=False,
         with_hook=False,
         with_claude_md=True,
@@ -262,8 +259,7 @@ def test_install_without_claude_md_doesnt_write_it(
     monkeypatch.setattr(cli, "_user_claude_md_path", lambda: tmp_path / "CLAUDE.md")
 
     args = argparse.Namespace(
-        project=False,
-        user_scope=False,
+        scope="user",
         dry_run=False,
         with_hook=False,
         with_claude_md=False,

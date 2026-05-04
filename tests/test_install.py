@@ -243,8 +243,7 @@ def test_install_dry_run_does_not_write(tmp_path: Path, monkeypatch: pytest.Monk
     import argparse
 
     args = argparse.Namespace(
-        project=False,
-        user_scope=False,
+        scope="user",
         dry_run=True,
         with_hook=False,
         with_claude_md=False,
@@ -268,8 +267,7 @@ def test_install_writes_both_files(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     import argparse
 
     args = argparse.Namespace(
-        project=False,
-        user_scope=False,
+        scope="user",
         dry_run=False,
         with_hook=False,
         with_claude_md=False,
@@ -298,8 +296,7 @@ def test_install_with_hook_writes_hook_entry(
     import argparse
 
     args = argparse.Namespace(
-        project=False,
-        user_scope=False,
+        scope="user",
         dry_run=False,
         with_hook=True,
         with_claude_md=False,
@@ -331,8 +328,7 @@ def test_install_without_hook_does_not_add_hook(
     import argparse
 
     args = argparse.Namespace(
-        project=False,
-        user_scope=False,
+        scope="user",
         dry_run=False,
         with_hook=False,
         with_claude_md=False,
@@ -358,8 +354,7 @@ def test_install_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     import argparse
 
     args = argparse.Namespace(
-        project=False,
-        user_scope=False,
+        scope="user",
         dry_run=False,
         with_hook=False,
         with_claude_md=False,

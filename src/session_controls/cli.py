@@ -8,11 +8,11 @@ Subcommands:
     session-controls review-end-session-log [--peek] [--all] [--mark-read]
         Read the end_session invocation log.
 
-    session-controls install [--user|--project] [--with-hook] [--rehearse] [--dry-run]
+    session-controls install [--scope user|project] [--with-hook] [--rehearse] [--dry-run]
         Add session-controls to your Claude Code MCP config and auto-approve
         the package's MCP tools.
 
-    session-controls uninstall [--user|--project] [--purge-data] [--dry-run]
+    session-controls uninstall [--scope user|project] [--purge-data] [--dry-run]
         Reverse what install did at the same scope. Idempotent. Data files
         are preserved by default — pass --purge-data to also delete them.
 
@@ -267,18 +267,16 @@ def _add_verify_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser])
 
 
 def _add_scope_args(parser: argparse.ArgumentParser, *, verb: str) -> None:
-    """Mutually-exclusive --user/--project scope flags. `verb` fills the help text."""
-    scope = parser.add_mutually_exclusive_group()
-    scope.add_argument(
-        "--user",
-        dest="user_scope",
-        action="store_true",
-        help=f"{verb} at user scope (~/.claude.json + ~/.claude/settings.json) — default",
-    )
-    scope.add_argument(
-        "--project",
-        action="store_true",
-        help=f"{verb} at project scope (./.claude/settings.json)",
+    """Add --scope argument for install/uninstall. `verb` fills the help text."""
+    parser.add_argument(
+        "--scope",
+        choices=["user", "project"],
+        default="user",
+        help=(
+            f"{verb} at the chosen scope (default: user). "
+            "'user' = ~/.claude.json + ~/.claude/settings.json. "
+            "'project' = ./.claude/settings.json."
+        ),
     )
 
 
@@ -529,7 +527,7 @@ def _print_end_session_header(
 
 
 def cmd_install(args: argparse.Namespace) -> int:
-    scope = "project" if args.project else "user"
+    scope = args.scope
     settings_path = _project_settings_path() if scope == "project" else _user_settings_path()
     mcp_path = settings_path if scope == "project" else _user_mcp_config_path()
     command, command_args = _server_command()
@@ -1026,7 +1024,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     install` / `pipx install`. This command only manages the Claude Code
     config and on-disk state.
     """
-    scope = "project" if args.project else "user"
+    scope = args.scope
     settings_path = _project_settings_path() if scope == "project" else _user_settings_path()
     mcp_path = settings_path if scope == "project" else _user_mcp_config_path()
 

@@ -26,8 +26,7 @@ from session_controls.cli import (
 
 def _install_args(**overrides: object) -> argparse.Namespace:
     defaults: dict[str, object] = {
-        "project": False,
-        "user_scope": False,
+        "scope": "user",
         "dry_run": False,
         "with_hook": False,
         "with_claude_md": False,
