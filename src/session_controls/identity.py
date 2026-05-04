@@ -16,7 +16,7 @@ session has not been swapped underneath us.
 The gate has three states: HIGH (fire), LOW (refuse, with a specific
 reason), INVALID (refuse, transport-level failure). There is no override.
 The cases that previously fired MEDIUM-with-acknowledgment now refuse —
-under adversarial conditions the acknowledgment functioned as ceremony, and
+under adversarial conditions the acknowledgment functioned as a rubber-stamp, and
 the asymmetric error structure (false-fire on PID reuse vs failed exit)
 favors refusing on suspect identity. Claude inspects the refusal reason
 via the gate_detail string and can independently confirm the same

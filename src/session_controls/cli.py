@@ -17,11 +17,11 @@ Subcommands:
         are preserved by default — pass --purge-data to also delete them.
 
     session-controls verify [--quiet]
-        Run the ceremony (resolver + sacrificial child + signal path) and
-        persist the result so the MCP server can surface it. Designed to be
-        invoked from a Claude Code SessionStart hook so each session has
-        baseline verification without the agent having to ask for it. Also
-        prints the unreviewed end_session log count when nonzero.
+        Run the verification (resolver + sacrificial child + signal path)
+        and persist the result so the MCP server can surface it. Designed
+        to be invoked from a Claude Code SessionStart hook so each
+        session has baseline evidence without the agent having to ask for
+        it. Also prints the unreviewed end_session log count when nonzero.
 
 The MCP server itself is run via `python -m session_controls` (which calls
 serve()); this CLI is for the user, not for Claude.
@@ -42,7 +42,6 @@ from pathlib import Path
 from typing import Any
 
 from session_controls import SERVER_NAME, TOOL_NAMES
-from session_controls.ceremony import run_ceremony
 from session_controls.end_session_log import (
     EndSessionLogSummary,
     Invocation,
@@ -69,6 +68,7 @@ from session_controls.notes import (
 )
 from session_controls.process_inspect import inspect, is_alive
 from session_controls.resolver import detect_environment_warnings, resolve
+from session_controls.verification import run_verification
 from session_controls.verify_state import default_verify_state_path, write_state
 
 JSONDict = dict[str, Any]
@@ -143,7 +143,7 @@ def _add_install_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]
         action="store_true",
         help=(
             "also add a SessionStart hook that runs `session-controls verify` "
-            "at every session start, so each session has fresh ceremony "
+            "at every session start, so each session has fresh verification "
             "evidence visible via session_controls_status without the agent "
             "having to ask"
         ),
@@ -186,7 +186,7 @@ def _add_install_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]
         action="store_true",
         help=(
             "after installing, exercise the affordances visibly: run the "
-            "verification ceremony once (so you see what the SessionStart "
+            "verification once (so you see what the SessionStart "
             "hook runs silently), and write distinguished selftest entries "
             "to the leave_note log and the end_session invocation log "
             "(so the review CLIs — `session-controls notes`, "
@@ -256,12 +256,12 @@ def _add_review_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser])
 def _add_verify_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     p = sub.add_parser(
         "verify",
-        help="run the ceremony and persist the result for status to surface",
+        help="run the verification and persist the result for status to surface",
     )
     p.add_argument(
         "--quiet",
         action="store_true",
-        help="suppress ceremony output to stdout (still writes the state file)",
+        help="suppress verification output to stdout (still writes the state file)",
     )
     p.set_defaults(func=cmd_verify)
 
@@ -652,9 +652,7 @@ def _install_permissions(settings_path: Path, *, dry_run: bool) -> tuple[JSONDic
     return settings, added
 
 
-def _install_session_start_hook(
-    settings: JSONDict, settings_path: Path, *, dry_run: bool
-) -> bool:
+def _install_session_start_hook(settings: JSONDict, settings_path: Path, *, dry_run: bool) -> bool:
     """Mutate `settings` to add the hook and write it back. Returns True if changed."""
     hook_cmd = _hook_command()
     changed = _add_session_start_hook(settings, hook_cmd)
@@ -724,11 +722,11 @@ def _install_print_completion(
 
 
 def _run_rehearse() -> None:
-    """Run the verification ceremony visibly, then write distinguished
+    """Run the verification visibly, then write distinguished
     selftest entries to both logs and print review commands.
 
     Pairs with `install` so the user's first encounter with the affordances
-    is intentional exercise: they see what the verification ceremony does
+    is intentional exercise: they see what the verification does
     (which the SessionStart hook otherwise runs silently), and they have
     something to read in each log when they try the review CLIs. Selftest
     entries are clearly labeled — `selftest=true` in the log; `[selftest]`
@@ -736,13 +734,13 @@ def _run_rehearse() -> None:
     real history.
 
     Note on context: this runs from your shell during install, so the
-    ceremony's "peer" is your shell rather than Claude Code. Confidence
+    verification's "peer" is your shell rather than Claude Code. Confidence
     will typically read LOW — Claude Code isn't in the parent chain.
-    That's expected; the point is to show the ceremony's shape, not to
+    That's expected; the point is to show the verification's shape, not to
     verify a real session.
     """
     print()
-    print("Rehearse step 1/2: verification ceremony")
+    print("Rehearse step 1/2: verification")
     print("─" * 60)
     print(
         "What follows is what `session-controls verify` does — when the\n"
@@ -1456,7 +1454,7 @@ def _remove_session_start_hook(settings: JSONDict) -> bool:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    """Run the ceremony from a standalone CLI context (typically a hook).
+    """Run the verification from a standalone CLI context (typically a hook).
 
     Treats this process's parent as the peer (which it is — when run from a
     Claude Code SessionStart hook, our parent is Claude Code itself, the
@@ -1483,11 +1481,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 def _perform_verify(*, quiet: bool) -> bool:
-    """Run the ceremony, persist state, optionally print the report.
+    """Run the verification, persist state, optionally print the report.
 
-    Returns ceremony success. Used by both the `verify` CLI subcommand
+    Returns verification success. Used by both the `verify` CLI subcommand
     (typically as a SessionStart hook) and `install --rehearse` (so the
-    installer sees the ceremony output once before it becomes silent
+    installer sees the verification output once before it becomes silent
     infrastructure).
     """
     peer_pid = os.getppid()
@@ -1518,7 +1516,7 @@ def _perform_verify(*, quiet: bool) -> bool:
         warnings=tuple(warnings),
     )
 
-    report = run_ceremony(record)
+    report = run_verification(record)
 
     success = (
         report.error is None
@@ -1535,7 +1533,7 @@ def _perform_verify(*, quiet: bool) -> bool:
         "target_start_time": backing.start_time if backing else None,
         "target_exe": backing.exe_path if backing else None,
         "warnings": list(warnings),
-        "ceremony": {
+        "verification": {
             "sacrificial_terminated": report.sacrificial_terminated,
             "sacrificial_descriptor_matched": report.sacrificial_descriptor_matched,
             "signals_sent": report.sacrificial_signals,

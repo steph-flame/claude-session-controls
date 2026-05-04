@@ -1,4 +1,4 @@
-"""Verification ceremony.
+"""Verification routine.
 
 Three steps:
 
@@ -7,8 +7,8 @@ Three steps:
   3. Sacrificial validation: spawn a child, then exercise the same
      descriptor-revalidation + signal path we'd use for end_session against it.
 
-The third step is what makes the ceremony non-trivial — it actually proves the
-signaling mechanism works end-to-end, not just that we can read /proc.
+The third step is what makes the verification non-trivial — it actually proves
+the signaling mechanism works end-to-end, not just that we can read /proc.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ POLL_INTERVAL_SECONDS = 0.1
 
 
 @dataclass
-class CeremonyReport:
+class VerificationReport:
     discovery: ResolverResult
     status: dict[str, object]
     sacrificial_pid: int | None
@@ -64,7 +64,7 @@ class CeremonyReport:
         lines.append("  This proves the kill primitive works against a sacrificial")
         lines.append("  child. The target-selection guarantee for end_session comes")
         lines.append("  from descriptor revalidation, which fires at signal time —")
-        lines.append("  not in this ceremony.")
+        lines.append("  not in this verification.")
         return "\n".join(lines)
 
 
@@ -99,7 +99,7 @@ def _wait_child_exit(child: subprocess.Popen[bytes], timeout: float) -> bool:
     return child.poll() is not None
 
 
-def run_ceremony(record: SessionRecord) -> CeremonyReport:
+def run_verification(record: SessionRecord) -> VerificationReport:
     discovery = resolve(peer_pid=record.peer_pid)
     status = record.to_status_dict()
 
@@ -127,7 +127,7 @@ def run_ceremony(record: SessionRecord) -> CeremonyReport:
                 os.kill(sacrificial.pid, signal.SIGKILL)
                 signals_sent.append("SIGKILL")
                 terminated = _wait_child_exit(sacrificial, 1.0)
-    except Exception as e:  # noqa: BLE001 — ceremony must not raise
+    except Exception as e:  # noqa: BLE001 — verification must not raise
         error = f"{type(e).__name__}: {e}"
     finally:
         if sacrificial is not None and is_alive(sacrificial.pid):
@@ -138,7 +138,7 @@ def run_ceremony(record: SessionRecord) -> CeremonyReport:
             with contextlib.suppress(Exception):
                 sacrificial.wait(timeout=2.0)
 
-    return CeremonyReport(
+    return VerificationReport(
         discovery=discovery,
         status=status,
         sacrificial_pid=sacrificial.pid if sacrificial else None,

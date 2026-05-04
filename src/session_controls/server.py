@@ -23,7 +23,6 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from session_controls import SERVER_NAME, TOOL_NAMES, __version__
-from session_controls.ceremony import run_ceremony
 from session_controls.claude_code_session import read_session_id_for_pid
 from session_controls.end_session_log import (
     append_invocation,
@@ -43,6 +42,7 @@ from session_controls.notes import summarize as summarize_notes
 from session_controls.process_inspect import inspect, is_alive, list_descendants
 from session_controls.resolver import detect_environment_warnings, resolve
 from session_controls.termination import end_session as run_end_session
+from session_controls.verification import run_verification
 from session_controls.verify_state import default_verify_state_path
 from session_controls.verify_state import read_state as read_verify_state
 
@@ -247,7 +247,7 @@ def _check_permission_drift() -> dict[str, object]:
         "There is no override at LOW — the gate refuses on suspect identity "
         "rather than offering an acknowledge-and-fire path. To confirm or "
         "judge the gate's call, run `end_session(dry_run=True)` (same gate, "
-        "no signal) or `verify_session_controls` (full ceremony with "
+        "no signal) or `verify_session_controls` (full verification with "
         "resolver candidates and sacrificial-child kill exercise).\n\n"
         "The response includes a `descendants` list — processes the resolver "
         "found descended from Claude Code (excluding this server's subtree "
@@ -443,7 +443,7 @@ def _read_verify_state(record: SessionRecord) -> dict[str, Any] | None:
 )
 def verify_session_controls() -> str:
     record = _build_record()
-    report = run_ceremony(record)
+    report = run_verification(record)
     return report.render()
 
 

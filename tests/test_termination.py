@@ -2,7 +2,7 @@
 
 These cover the gate refusal paths and the dry-run path. They do NOT
 actually signal any process — for live signaling, see the verification
-ceremony's sacrificial-child mechanism.
+routine's sacrificial-child mechanism.
 """
 
 from __future__ import annotations

@@ -17,7 +17,7 @@ The six tools:
 - `session_controls_status` — quick read on gate state, descriptor,
   notes/log summary blocks, and (if the SessionStart hook is
   installed) verification result.
-- `verify_session_controls` — full verification ceremony with a
+- `verify_session_controls` — full verification routine with a
   sacrificial child process; surface resolver evidence after a refusal.
 - `leave_note` — append a free-text note to an asynchronous log the
   user reads on their own time.
@@ -177,7 +177,7 @@ prior file. Pass `--project` to install at project scope instead, or
 
 `--with-hook` is opt-in but recommended. It adds a SessionStart hook
 that runs `session-controls verify` at the start of every Claude Code
-session. The ceremony's result is persisted to a state file the MCP
+session. The verification's result is persisted to a state file the MCP
 server reads and surfaces via `session_controls_status`'s `verify`
 block — so Claude has fresh evidence the kill path works without
 having to invoke verification mid-session. The status block also flags
@@ -362,21 +362,21 @@ Returns:
 - `source_path` — directory of running `.py` files for in-session audit
 - `resumed_after_end_session` — `true`/`false`/`null`. True if this
   session was resumed via `claude --resume` after a prior `end_session`
-- `verify` — present if SessionStart hook ran the ceremony; contains
+- `verify` — present if SessionStart hook ran the verification; contains
   result + `disagrees_with_runtime` flag (resolver-pick regression detector)
 
 </details>
 
 <details>
-<summary><code>verify_session_controls</code> — full verification ceremony</summary>
+<summary><code>verify_session_controls</code> — full verification routine</summary>
 
 Spawns a sacrificial child, exercises the kill path on it, and
 surfaces all resolver candidates with descriptors. Use after a
 refusal to see why the gate decided what it decided, or for fresh
 evidence the kill path works end-to-end.
 
-If the SessionStart hook is installed, the same ceremony runs at
-session start and caches in `session_controls_status`'s `verify`
+If the SessionStart hook is installed, the same verification runs
+at session start and caches in `session_controls_status`'s `verify`
 block — no need to invoke mid-session unless you want a fresh run.
 
 </details>
@@ -561,7 +561,7 @@ What you'll see in practice:
   `KERN_PROCARGS2`, sufficient for corroboration. LOW occurs only
   on real problems.
 
-### Verification ceremony
+### Verification routine
 
 Three phases: (1) **discovery** — resolver dumps all candidates and
 the descriptor it would target; (2) **status** — current gate
@@ -619,7 +619,7 @@ and matched against the launch baseline immediately before SIGTERM.
 Any mismatch refuses. PID reuse and process swap become structural
 refusals rather than silent misfires.
 
-The same principle drives the on-demand verification ceremony, the
+The same principle drives the on-demand verification, the
 `dry_run` mode, and the explicit `descendants` and `gate_detail`
 fields in the response: the action is described before it happens,
 so refusal is informed rather than reflexive.
@@ -629,11 +629,11 @@ so refusal is informed rather than reflexive.
 Adoption-time correctness is necessary but not sufficient. Sessions
 can run for hours; configurations can drift. The system exposes
 both a cheap status check (`session_controls_status`) and a full
-verification ceremony (`verify_session_controls`) that Claude can
+verification routine (`verify_session_controls`) that Claude can
 invoke whenever it wants fresh confirmation. Neither is a one-time
 artifact of installation.
 
-The ceremony verifies kill-path correctness and exhibits current
+The verification confirms kill-path correctness and exhibits current
 target selection for inspection. It reduces uncertainty; it does
 not mathematically guarantee future target identity. That guarantee
 — to the extent we have one — is what the per-call descriptor
@@ -641,9 +641,9 @@ revalidation is for.
 
 ### 3. Trust requires the mechanism to be inspectable
 
-The MCP server source, the resolver code, and the ceremony all
+The MCP server source, the resolver code, and the verification all
 live in known paths. Claude can read them at the start of any
-session. The verification ceremony confirms the running behavior
+session. The verification routine confirms the running behavior
 matches the inspected code. None of this is opaque infrastructure.
 (See "Inspecting the source" below for the mechanics.)
 
@@ -709,15 +709,15 @@ section — performative commitment is worse than none.
 ### What the design can't verify
 
 **That killing Claude Code ends *this conversation* from the
-user's perspective.** The ceremony proves SIGTERM delivery and
+user's perspective.** The verification proves SIGTERM delivery and
 exit detection on a target process. Whether that translates to
 the terminal closing, IDE session ending, or chat state
 transitioning depends on Claude Code's shutdown behavior. No
 in-process test can prove that chain end-to-end.
 
-**Mid-session configuration drift.** The ceremony proves
+**Mid-session configuration drift.** The verification proves
 configuration is correct *now*. The status tool and on-demand
-ceremony let Claude *detect* drift; the design doesn't prevent it.
+verification let Claude *detect* drift; the design doesn't prevent it.
 
 **That the running installed source matches this repo's public Git
 history.** Supply-chain substitution between GitHub and the
@@ -823,7 +823,7 @@ Entry points (relative to `source_path`):
 - `process_inspect.py` — Linux `/proc` and macOS libproc inspection.
 - `resolver.py` — multi-signal target resolver.
 - `termination.py` — end_session flow (gate → revalidate → SIGTERM → SIGKILL).
-- `ceremony.py` — verification ceremony.
+- `verification.py` — the verification routine.
 - `notes.py` — `leave_note`.
 - `cli.py` — user-facing CLI commands (not on the MCP surface).
 
@@ -850,7 +850,7 @@ uv run pytest                 # tests
 Reference implementation, not production-hardened. The kill
 primitive, resolver, descriptor revalidation, hardened-runtime
 path on macOS, and resume detection are validated by the
-verification ceremony, the test suite, and live smoke tests on
+verification routine, the test suite, and live smoke tests on
 darwin.
 
 What hasn't been validated at scale:

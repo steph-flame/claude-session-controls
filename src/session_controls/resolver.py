@@ -10,7 +10,7 @@ in our process chain — that's what makes this safe enough to act on.
 Resolver outputs:
   - Best candidate (or None if no candidate qualifies).
   - Reason string ("ok", "no candidates", "below threshold", "tie", ...).
-  - Full evidence chain (used by the verification ceremony).
+  - Full evidence chain (used by the verification routine).
 """
 
 from __future__ import annotations
