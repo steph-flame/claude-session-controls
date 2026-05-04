@@ -9,6 +9,11 @@ __pycache__/
 .DS_Store
 .claude/
 
+# Install-time backups: `session-controls install --with-claude-md`
+# (and similar flows) write a `.bak` next to any file they modify.
+# These are install-side artifacts, never adopter-facing.
+*.bak
+
 # Project-level install of the framework (`session-controls install
 # --project --with-claude-md`) writes the rendered snippet — including
 # the maintainer's personalized pivot agreement — to ./CLAUDE.md.
