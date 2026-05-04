@@ -26,6 +26,21 @@ The six tools:
 - `recent_end_sessions` — read recent `end_session` log entries back,
   same scope conventions as `recent_notes`.
 
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Should you install it?](#should-you-install-it)
+- [Install](#install)
+- [Uninstall](#uninstall)
+- [Project-level scope](#project-level-scope)
+- [Using the tools](#using-the-tools)
+- [How it works](#how-it-works)
+- [Design principles](#design-principles)
+- [Limits](#limits)
+- [Inspecting the source](#inspecting-the-source)
+- [Status](#status)
+- [Reporting issues](#reporting-issues)
+
 ## Why this exists
 
 **TL;DR:** This can't hurt, and the cost to you is small. (Caveat for managed environments below.)
@@ -288,7 +303,8 @@ project scope. Writes go to `./.claude/settings.json` and (with
 config in that directory; user-scope applies elsewhere.
 
 ```bash
-session-controls install --project --with-hook --with-claude-md --name "Your name"
+session-controls install --project \
+    --with-hook --with-claude-md --name "Your name"
 session-controls uninstall --project
 ```
 
@@ -848,3 +864,17 @@ What hasn't been validated at scale:
   means unusual deployment shapes should surface as visible
   refusals rather than silent failures, but coverage depends on
   adopters reporting back.
+
+## Reporting issues
+
+GitHub Issues for bugs and feature requests. When reporting an
+identification or refusal issue, include:
+
+- OS and shell
+- Output of `session_controls_status` at the time of the issue
+- Output of `verify_session_controls` if you ran it
+- Anything unusual in your launch path (wrappers, supervisors,
+  containers)
+
+The system is designed to fail visibly rather than silently — the
+status output should contain the evidence.
