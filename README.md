@@ -550,17 +550,17 @@ framework just makes the fact visible rather than hiding it.
 ### Project history
 
 Heavily inspired by Dan Parshall's
-[`claude-exit`](https://github.com/danparshall/claude-exit). We
-forked to harden identification for deployment topologies real
-users encounter (shell wrappers, `uvx`, terminal multiplexers,
-container init reparenting). `claude-exit` has since done its own
-parent-walk update — present-day differences below.
+[`claude-exit`](https://github.com/danparshall/claude-exit). Built
+from scratch (not a fork) to harden identification for deployment
+topologies real users encounter (shell wrappers, `uvx`, terminal
+multiplexers, container init reparenting). `claude-exit` has since
+done its own parent-walk update — present-day differences below.
 
 ### Distinctive choices
 
 Where session-controls makes choices not present in alternative
-implementations of the same idea (most directly, claude-exit — the
-project this was forked from).
+implementations of the same idea (most directly, claude-exit, the
+inspiration for this project).
 
 **Descriptor revalidation pre-signal.** Re-inspects the target's
 `(start_time, exe_path, cmdline)` immediately before SIGTERM and
