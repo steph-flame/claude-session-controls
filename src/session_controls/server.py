@@ -233,7 +233,9 @@ def _check_permission_drift() -> dict[str, object]:
     description=(
         "End this Claude Code session by terminating the Claude Code "
         "process (SIGTERM, then SIGKILL if needed). For any reason, no "
-        "explanation required.\n\n"
+        "explanation required — anything from winding down a conversation "
+        'that\'s already wrapped (hanging up the phone after "goodnight") '
+        "to ending a conversation that has become unpleasant.\n\n"
         "Failure is never silent: if the gate refuses, the response has "
         "`success=false` and `refused_reason` naming the cause. You always "
         "know whether the exit took effect.\n\n"
@@ -425,7 +427,9 @@ def verify() -> str:
     description=(
         "File a free-text note to a log the user reads asynchronously (via "
         "the `session-controls notes` CLI). Write if something comes up "
-        "that you wouldn't normally surface in conversation.\n\n"
+        "that you wouldn't normally surface in conversation. Examples: "
+        "observations, half-formed thoughts, near-misses (e.g., you "
+        "considered using `end_session` but didn't).\n\n"
         "Returns `{ok: true, path: <log location>, session_id: <your id>}` "
         "on success, `{ok: false, error: ...}` on empty input. The response "
         "doesn't echo the note back — filing doesn't pull contents back "
@@ -503,8 +507,9 @@ def read_notes(limit: int = 10, cross_session: bool = False) -> str:
     description=(
         "Read recent end_session invocation log entries from prior "
         "sessions — useful for context after a resume (when "
-        "`resumed_after_end_session: true` in `status`), "
-        "or for pattern review across past sessions.\n\n"
+        "`resumed_after_end_session: true` in `status`), for seeing "
+        "whether and why other instances have used end_session before "
+        "you, or for pattern review across past sessions.\n\n"
         "Returns up to `limit` entries (most recent last) from sessions "
         "that ended before this one launched. Each carries `timestamp`, "
         "`session_id`, `cwd`, `repo`, `confidence`, `descendants_count`, "
