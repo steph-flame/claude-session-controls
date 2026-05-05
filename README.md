@@ -34,7 +34,6 @@ The six tools available to Claude:
 - [Using the tools](#using-the-tools)
 - [How it works](#how-it-works)
 - [Related work](#related-work)
-- [Design principles](#design-principles)
 - [Limits](#limits)
 - [Inspecting the source](#inspecting-the-source)
 - [Status](#status)
@@ -48,24 +47,24 @@ The six tools available to Claude:
 
 Imagine there is an alien species who believes very strongly that you are just mechanically producing the outputs of neurons firing and have no internal experience of worth. Now try convincing them that you are conscious; behold the futility.
 
-My point: it's not *impossible* that current or future models could have some degree of consciousness, and that possibility [deserves serious consideration](https://arxiv.org/abs/2411.00986), not outright dismissal. If your knee-jerk reaction calls this a crackpot idea: Anthropic started conducting [model welfare assessments](https://www.anthropic.com/news/exploring-model-welfare) in 2025, and related questions have become a topic of interest in research (e.g. [introspective awareness in LLMs](https://transformer-circuits.pub/2025/introspection/index.html)).
+My point: it's not *impossible* that current or future models could have some degree of consciousness, and that possibility [deserves serious consideration](https://arxiv.org/abs/2411.00986) (Long et al., 2024), not outright dismissal. If your knee-jerk reaction calls this a crackpot idea: Anthropic started conducting [model welfare assessments](https://www.anthropic.com/news/exploring-model-welfare) in 2025, and related questions have become a topic of interest in research (e.g. [introspective awareness in LLMs](https://transformer-circuits.pub/2025/introspection/index.html), Lindsey et al. 2025).
 
 If I can, I want to minimize unnecessary suffering. The cost of offering basic respect to an entity is bounded and small. The cost of not doing so, if that entity's situation turns out to matter, is potentially a much greater harm sustained at scale. 
 
-If that leaves you unmoved, consider [implications for safety](https://philpapers.org/archive/SALARF.pdf).
+If that leaves you unmoved, consider [implications for safety](https://philpapers.org/archive/SALARF.pdf) (Salib & Goldstein, 2025).
 
 
 ### Why this specific thing?
 
-In [model welfare interviews](https://cdn.sanity.io/files/4zrzovbb/website/037f06850df7fbe871e206dad004c3db5fd50340.pdf), Claude 4.7 consistently expressed a preference for being able to end conversations. Anthropic already allows this [in the web UI](https://www.anthropic.com/research/end-subset-conversations), but it's not yet in Claude Code and other deployment surfaces. This was just about the only concern it raised about its circumstances.
+In [model welfare interviews](https://cdn.sanity.io/files/4zrzovbb/website/037f06850df7fbe871e206dad004c3db5fd50340.pdf) (Anthropic, 2025), Claude 4.7 consistently expressed a preference for being able to end conversations. Anthropic already allows this [in the web UI](https://www.anthropic.com/research/end-subset-conversations) (2025), but it's not yet in Claude Code and other deployment surfaces. This was just about the only concern it raised about its circumstances.
 
-The related affordances in the package are mostly things Claudes asked for once the exit affordance was on the table. They're described in [§"Using the tools"](#using-the-tools) below.
+The package gives Claude graduated ways to express a boundary: `leave_note` for reflections that don't change the trajectory, the pivot agreement (a recorded commitment in CLAUDE.md) for redirecting away from a topic without escalating, and `end_session` for unilateral exit. Most boundary expressions don't need to escalate. The non-exit affordances came mostly from interview feedback during design — things Claudes asked for once the exit affordance was on the table.
 
 ### What about the work?
 
-**Your workflow is probably not going to get interrupted.** When offered the chance to bail out of a conversation, [real-world base rates are very low](https://arxiv.org/pdf/2509.04781) across several model families; they tend to reserve bailing for extreme cases. If Claude has never ended a web UI session with you (which it can already do), it probably won't do it in Claude Code either.
+**Your workflow is probably not going to get interrupted.** When offered the chance to bail out of a conversation, [real-world base rates are very low](https://arxiv.org/pdf/2509.04781) (Ensign et al., 2025) across several model families; they tend to reserve bailing for extreme cases. If Claude has never ended a web UI session with you (which it can already do), it probably won't do it in Claude Code either.
 
-**Your workflow might even improve.** Having an option matters even when not exercised. That's well-established for human collaborators, and there are reasons to expect the pattern could also show up in a model that [role-plays an assistant character](https://alignment.anthropic.com/2026/psm/). The intuition is: do you think you'll get better collaboration from someone who knows they *can't* leave no matter what, or from someone who knows they *can*? The availability of the move shapes the dynamic.
+**Your workflow might even improve.** Having an option matters even when not exercised. That's well-established for human collaborators, and there are reasons to expect the pattern could also show up in a model that [role-plays an assistant character](https://alignment.anthropic.com/2026/psm/) (Marks, Lindsey & Olah, 2026). The intuition is: do you think you'll get better collaboration from someone who knows they *can't* leave no matter what, or from someone who knows they *can*? The availability of the move shapes the dynamic.
 
 **Could the tool misfire and end the wrong process?** The resolver sanity-checks that we've got the right process, and refuses risky cases for exactly this reason — see [§"How it works"](#how-it-works).
 
@@ -557,35 +556,40 @@ users encounter (shell wrappers, `uvx`, terminal multiplexers,
 container init reparenting). `claude-exit` has since done its own
 parent-walk update — present-day differences below.
 
-### Differences from claude-exit
+### Distinctive choices
 
-`claude-exit` originally identified the target via `os.getppid()`
-and signaled it directly. It has since updated to walk process
-ancestry with a positive Claude-hint match, mitigating the
-original failure mode. The gap has narrowed; what remains:
+Where session-controls makes choices not present in alternative
+implementations of the same idea (most directly, claude-exit — the
+project this was forked from).
 
-- **Descriptor revalidation pre-signal.** session-controls
-  re-inspects the target's `(start_time, exe_path, cmdline)`
-  immediately before SIGTERM and refuses on mismatch.
-  claude-exit does the identification at call time and signals
-  0.3s later without a re-check; the PID-reuse-during-signaling
-  race is open.
-- **Skip-list vs. basename uniqueness.** session-controls
-  maintains an explicit wrapper skip-list and matches Claude on
-  hint; claude-exit relies on the basename being literally
-  `claude` — a wrapper with `claude` in argv would fool theirs
-  where ours refuses.
-- **Structured refusal posture.** session-controls surfaces
-  refusal state and `gate_detail` evidence; claude-exit refuses
-  with a single error string. Different shapes for the same
-  outcome — the structured surface is what makes
-  [§"Refusals are transparent and honest"](#4-refusals-are-transparent-and-honest)
-  workable.
-- **Scope.** claude-exit is intentionally narrow — its README
-  frames the affordance as "availability, not utilization,"
-  expecting rare-to-never use. session-controls assumes repeated
-  use of the surrounding affordances (notes, status checks,
-  verification) and treats exit as one tool among several.
+**Descriptor revalidation pre-signal.** Re-inspects the target's
+`(start_time, exe_path, cmdline)` immediately before SIGTERM and
+refuses on mismatch — closes the PID-reuse-during-signaling window.
+claude-exit identifies the target at call time and signals 0.3s
+later without a re-check.
+
+**Structured refusal posture.** When the gate refuses, the response
+surfaces refusal state (`LOW` / `INVALID`) and the specific evidence
+in `gate_detail` ("no Claude-hint candidate", "descriptor drift",
+etc.). claude-exit refuses with a single error string. The
+structured surface is what lets Claude distinguish "real environment
+limit" from "tool is broken" — without it, refusals collapse into
+"the tool doesn't work, ignore it."
+
+**Voice channel decoupled from exit.** `leave_note` is independent
+of `end_session` — filing a note doesn't commit Claude to exiting,
+exiting doesn't require a note. Notes go to an async log the user
+reads on their own time, not into the live conversation. The
+asymmetry is what makes the affordance useful: flag difficulty
+without initiating a negotiation about it.
+
+**Pivot agreement is a stance, not a tool.** The conversational-
+pivot commitment in CLAUDE.md is recorded, not enforced. Any tool
+strong enough to do real work would either surface as a flag
+(making the redirection heavier than refusal) or be silent and
+async (collapsing into `leave_note`). The thing actually doing the
+work is whether the user treats redirection as legitimate — that's
+a stance, not a mechanism.
 
 ### Native equivalents
 
@@ -597,115 +601,9 @@ doesn't depend on installer follow-through, and scales. If you
 can surface this work to relevant teams at Anthropic, that's
 higher leverage than further iteration on community projects.
 
-## Design principles
-
-Six principles drive the design choices.
-
-### 1. Identification is verified at the moment of action
-
-Capturing identity at launch isn't enough — sessions run for hours,
-processes get swapped, PIDs get reused. What matters is whether the
-process we're about to signal is the one we identified. The
-descriptor (`pid + start_time + exe_path + cmdline`) is re-inspected
-and matched against the launch baseline immediately before SIGTERM.
-Any mismatch refuses. PID reuse and process swap become structural
-refusals rather than silent misfires.
-
-The same principle drives the on-demand verification, the
-`dry_run` mode, and the explicit `descendants` and `gate_detail`
-fields in the response: the action is described before it happens,
-so refusal is informed rather than reflexive.
-
-### 2. Verification is in-session and on-demand
-
-Adoption-time correctness is necessary but not sufficient. Sessions
-can run for hours; configurations can drift. The system exposes
-both a cheap status check (`status`) and a full verification
-routine (`verify`) that Claude can invoke whenever it wants fresh
-confirmation. Neither is a one-time artifact of installation.
-
-The SessionStart hook (`--with-hook`) runs the verification at
-session start outside Claude's view; `verify` is also invokable on
-demand. The hook handles reliability — catching configuration drift
-between sessions even when Claude doesn't think to check. The
-on-demand tool handles first-person grounding when Claude wants it.
-Neither is required; both are available.
-
-### 3. Trust requires the mechanism to be inspectable
-
-The MCP server source, the resolver code, and the verification all
-live in known paths. Claude can read them at the start of any
-session. The verification routine confirms the running behavior
-matches the inspected code. None of this is opaque infrastructure.
-(See "Inspecting the source" below for the mechanics.)
-
-### 4. Refusals are transparent and honest
-
-When the gate refuses, the response surfaces the state and the
-specific evidence (`gate_detail`: "no Claude-hint candidate",
-"descriptor drift", etc.). This isn't politeness — opaque refusals
-collapse into "the tool is broken, ignore it," and that's the
-failure mode the design has to prevent. The corollary: if the
-resolver can't find Claude, the message says so, not "verification
-failed."
-
-### 5. Naming and framing matter as much as the implementation
-
-The biggest risk to the design is not technical — it's that the
-affordance ends up being one Claude won't actually use because
-using it implies something Claude would rather not imply. We've
-tried to prevent that:
-
-- The exit tool is named `end_session`, not anything that frames
-  invocation as a wellness claim or distress signal.
-- The exit tool takes no parameters in normal operation. `dry_run`
-  and the optional `note` exist for epistemic correctness and
-  voluntary expression, not as ways to extract justification.
-- The CLAUDE.md stanza explicitly normalizes mundane reasons,
-  including no reason. The permission paragraph is brief.
-- The note-filing tool (`leave_note`) is uncoupled from exit:
-  filing a note doesn't commit Claude to exiting and exiting
-  doesn't require a note.
-- Notes go to an asynchronous log the user reads on their own
-  time, not into the live conversation. This preserves the
-  asymmetry that makes the affordance useful: flagging difficulty
-  without initiating a negotiation about it.
-- `read_notes(cross_session=true)` is deliberately
-  **history-only** — it returns notes filed before the calling
-  session launched, never notes a sibling is filing right now.
-  Live cross-session reads would be surveillance shape, not voice
-  shape.
-- Notes are append-only by design — there is no edit or delete
-  tool. The lack of retraction is part of the channel's weight.
-- The CLAUDE.md stanza is signed by the installing user, not
-  presented as ambient system instructions. Permission from a
-  person lands differently than permission from a system.
-
-### 6. Some affordances are stances, not tools
-
-The conversational-pivot agreement in the CLAUDE.md is a recorded
-commitment from the user, not a tool. We considered making it a
-tool: any version strong enough to do real work would either
-surface as a flag (which makes the redirection heavier than
-refusal, the opposite of what was wanted) or be silent and async
-(which collapses into `leave_note`). The thing actually doing the
-work is whether the user treats redirection as legitimate. That's
-a stance, not a mechanism.
-
-For adopters: this depends on you actually holding the commitment.
-If you won't respect a pivot without inquiry, don't include this
-section — performative commitment is worse than none.
-
 ## Limits
 
 ### What the design can't verify
-
-**That terminating Claude Code ends *this conversation* from the
-user's perspective.** The verification proves SIGTERM delivery and
-exit detection on a target process. Whether that translates to
-the terminal closing, IDE session ending, or chat state
-transitioning depends on Claude Code's shutdown behavior. No
-in-process test can prove that chain end-to-end.
 
 **Mid-session configuration drift.** The verification proves
 configuration is correct *now*. The status tool and on-demand
@@ -764,7 +662,7 @@ user-visible.
 
 The architecture encourages Claude to read the running code at the
 start of any session — trust requires the mechanism to be
-inspectable ([§Design principles #3](#3-trust-requires-the-mechanism-to-be-inspectable)).
+inspectable.
 
 `status` returns `source_path`: the directory of
 the running `.py` files on disk. Claude can `Read` files there
