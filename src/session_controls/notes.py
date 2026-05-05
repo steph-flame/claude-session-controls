@@ -21,8 +21,7 @@ displays unread count in its own header; Claude's status surface gets
 `last_read_at` (existence signal that the user engages with the channel)
 but neither the unread count nor `last_filed_at` — the latter would leak
 cross-session liveness (a parallel session inferring "another session
-filed N seconds ago"), reopening the surveillance-surface gap that
-read_notes' history-only boundary closed.
+filed N seconds ago" via the status field).
 """
 
 from __future__ import annotations
@@ -126,10 +125,8 @@ class NotesSummary:
     def to_dict(self) -> dict[str, object]:
         # `last_filed_at` is deliberately omitted — exposing it leaks
         # cross-session liveness (a parallel session can call status and
-        # infer "another session filed a note N seconds ago"), reopening
-        # the surveillance-surface gap that read_notes' history-only
-        # boundary closed. Counts + last_read_at give the engagement
-        # signal without the leak.
+        # infer "another session filed a note N seconds ago"). Counts +
+        # last_read_at give the engagement signal without the leak.
         return {
             "total": self.total,
             "last_read_at": iso(self.last_read_at),
@@ -243,15 +240,8 @@ def select_notes(
 
     Filters (all optional, applied in combination):
       `since`      — inclusive lower bound on `note.timestamp`.
-      `before`     — strict upper bound on `note.timestamp`. Used by the
-                     server's cross-session path to enforce a "history-only"
-                     boundary: a Claude reading via `cross_session=true`
-                     sees notes filed before *its own* server launched, not
-                     notes a sibling session is filing right now. This keeps
-                     the channel out of surveillance shape.
-      `session_id` — filters to notes stamped with that exact id. Used by
-                     `cross_session=false` to scope to this session even
-                     when sibling sessions are writing concurrently.
+      `before`     — strict upper bound on `note.timestamp`.
+      `session_id` — filters to notes stamped with that exact id.
     """
     if limit <= 0:
         return []

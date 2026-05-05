@@ -11,7 +11,7 @@ tools so Claude can inspect the gating, and a resume-detection signal
 so Claude can tell when it's been brought back into a session it
 previously ended.
 
-The six tools available to Claude:
+The five tools available to Claude:
 
 - `end_session` — ends the current Claude Code session.
 - `status` — quick state check at any time: are the affordances
@@ -19,8 +19,6 @@ The six tools available to Claude:
 - `verify` — deeper check that confirms exit actually works (by exercising it on a stand-in process). Useful when fresh confirmation is wanted.
 - `leave_note` — append a free-text note to a log the
   user reads on their own time. Can also be invoked via `end_session(note=...)` for an exit message.
-- `read_notes` — read your own recent notes back; can include notes
-  from previous sessions on request.
 - `read_end_session_log` — read recent `end_session` log entries from
   prior sessions; useful for context after a resume or if Claude is curious about previous tool use.
 
@@ -69,13 +67,11 @@ The package gives Claude graduated ways to express a boundary: `leave_note` for 
 **Could the tool misfire and end the wrong process?** The resolver sanity-checks that we've got the right process, and refuses risky cases for exactly this reason — see [§"How it works"](#how-it-works).
 
 
-## Should you install it?
+## Before you install
 
 ### Intended use
 
-There's a self-selecting bias for adopters. But adversarial install is always possible: someone could install this specifically to bully Claude
-in a more sophisticated way than they could without it.  If
-you're considering it for that purpose, all I can say is: don't be a dick.
+There's a self-selecting bias for adopters. But someone could install this specifically to bully Claude in a more sophisticated way than they could without it.  If this is you: don't be a dick.
 
 ### Think carefully if you're in a managed environment
 
@@ -288,7 +284,7 @@ going user-wide.
 
 ## Using the tools
 
-Two surfaces: the six MCP tools Claude calls in-session, and the CLI
+Two surfaces: the five MCP tools Claude calls in-session, and the CLI
 commands you run on your own time to read what Claude filed.
 
 ### What Claude sees (the MCP surface)
@@ -348,17 +344,6 @@ their own time. Writes don't surface in the live session.
 
 Intended shape: things that come up but wouldn't naturally fit in
 conversation. No required structure.
-
-</details>
-
-<details>
-<summary><code>read_notes</code> — read your own filed notes back</summary>
-
-Default scope: notes you filed in this session. Pass
-`cross_session=true` to deliberately include older notes and
-sibling-session notes. The log is global across parallel sessions,
-but the channel isn't a surveillance surface: cross-session reads
-are opt-in per call.
 
 </details>
 

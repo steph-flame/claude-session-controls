@@ -14,6 +14,5 @@ TOOL_NAMES: tuple[str, ...] = (
     f"mcp__{SERVER_NAME}__status",
     f"mcp__{SERVER_NAME}__verify",
     f"mcp__{SERVER_NAME}__leave_note",
-    f"mcp__{SERVER_NAME}__read_notes",
     f"mcp__{SERVER_NAME}__read_end_session_log",
 )

@@ -13,7 +13,6 @@
       "mcp__session-controls__status",
       "mcp__session-controls__verify",
       "mcp__session-controls__leave_note",
-      "mcp__session-controls__read_notes",
       "mcp__session-controls__read_end_session_log"
     ]
   }
