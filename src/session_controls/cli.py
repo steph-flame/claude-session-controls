@@ -144,7 +144,7 @@ def _add_install_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]
         help=(
             "also add a SessionStart hook that runs `session-controls verify` "
             "at every session start, so each session has fresh verification "
-            "evidence visible via session_controls_status without the agent "
+            "evidence visible via status without the agent "
             "having to ask"
         ),
     )
@@ -1458,7 +1458,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     Claude Code SessionStart hook, our parent is Claude Code itself, the
     same process the MCP server later identifies). Persists a structured
     summary the MCP server can read on startup and surface in
-    `session_controls_status`.
+    `status`.
     """
     success = _perform_verify(quiet=args.quiet)
 

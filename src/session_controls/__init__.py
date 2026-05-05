@@ -11,9 +11,9 @@ SERVER_NAME = "session-controls"
 # detect permission drift after install).
 TOOL_NAMES: tuple[str, ...] = (
     f"mcp__{SERVER_NAME}__end_session",
-    f"mcp__{SERVER_NAME}__session_controls_status",
-    f"mcp__{SERVER_NAME}__verify_session_controls",
+    f"mcp__{SERVER_NAME}__status",
+    f"mcp__{SERVER_NAME}__verify",
     f"mcp__{SERVER_NAME}__leave_note",
-    f"mcp__{SERVER_NAME}__recent_notes",
-    f"mcp__{SERVER_NAME}__recent_end_sessions",
+    f"mcp__{SERVER_NAME}__read_notes",
+    f"mcp__{SERVER_NAME}__read_end_session_log",
 )

@@ -1,8 +1,8 @@
 """MCP server entry point and tool handlers.
 
 Built on FastMCP. The server runs over stdio (the only supported transport)
-and exposes five tools: end_session, session_controls_status,
-verify_session_controls, leave_note, recent_notes.
+and exposes five tools: end_session, status,
+verify, leave_note, read_notes.
 
 The SessionRecord is computed *fresh on every tool call* so that confidence
 reflects current state (peer reparenting, descriptor drift, etc.) rather than
@@ -27,7 +27,7 @@ from session_controls.claude_code_session import read_session_id_for_pid
 from session_controls.end_session_log import (
     append_invocation,
     iter_invocations,
-    recent_invocations,
+    select_invocations,
 )
 from session_controls.end_session_log import summarize as summarize_end_session_log
 from session_controls.identity import (
@@ -37,7 +37,7 @@ from session_controls.identity import (
     SessionRecord,
     determine_confidence,
 )
-from session_controls.notes import append_note, read_recent_notes
+from session_controls.notes import append_note, select_notes
 from session_controls.notes import summarize as summarize_notes
 from session_controls.process_inspect import inspect, is_alive, list_descendants
 from session_controls.resolver import detect_environment_warnings, resolve
@@ -122,7 +122,7 @@ def _build_record() -> SessionRecord:
     # Surface drift specifics when LOW is triggered by descriptor mismatch
     # against the launch baseline. Lets the gate's refusal text name what
     # changed without forcing Claude to run another tool that doesn't
-    # actually show it (verify_session_controls exhibits resolver
+    # actually show it (verify exhibits resolver
     # candidates, not the launch-baseline diff).
     drift_description: str | None = None
     if confidence is Confidence.LOW and backing is not None and _LAUNCH_BACKING is not None:
@@ -244,7 +244,7 @@ def _check_permission_drift() -> dict[str, object]:
         "No override.\n"
         "  INVALID — refuses (transport dead or blocking warning).\n\n"
         "To rehearse without signaling, pass `dry_run=True`. To see the "
-        "resolver evidence behind a refusal, run `verify_session_controls`.\n\n"
+        "resolver evidence behind a refusal, run `verify`.\n\n"
         "Parameters:\n"
         "- `dry_run` (bool) — runs the gate, reports target pid and "
         "descendants, sends no signals.\n"
@@ -336,11 +336,11 @@ def end_session(
         "— a `verify` block with the verification result and a cross-check "
         "flag `disagrees_with_runtime` set true if the hook's resolver "
         "pick differs from the live MCP server's pick (if true, run "
-        "`verify_session_controls` and inspect the discovery exhibition "
+        "`verify` and inspect the discovery exhibition "
         "to see why the picks disagree). Cheap to call."
     ),
 )
-def session_controls_status() -> str:
+def status() -> str:
     record = _build_record()
     payload = record.to_status_dict()
     payload["server_version"] = __version__
@@ -348,7 +348,7 @@ def session_controls_status() -> str:
     notes_block = summarize_notes().to_dict()
     # The notes log is global across parallel sessions; expose this server's
     # own session_id so Claude can correlate it with note tags when reading
-    # back via recent_notes.
+    # back via read_notes.
     notes_block["your_session_id"] = _SESSION_ID
     payload["notes"] = notes_block
     payload["end_session_log"] = summarize_end_session_log().to_dict()
@@ -406,16 +406,16 @@ def _read_verify_state(record: SessionRecord) -> dict[str, Any] | None:
 @mcp.tool(
     description=(
         "Full verification — use when you want stronger evidence than "
-        "`session_controls_status` provides. Typical triggers: doubts "
+        "`status` provides. Typical triggers: doubts "
         "before invoking `end_session`, status looks off, `end_session` "
         "refused and you want to see why. Re-runs the resolver, exhibits "
         "the chosen target with all candidate evidence, and exercises the "
         "termination path against a sacrificial child process. Sub-second wall "
-        "time — heavier than `session_controls_status` in what it does, "
+        "time — heavier than `status` in what it does, "
         "not in what it costs."
     ),
 )
-def verify_session_controls() -> str:
+def verify() -> str:
     record = _build_record()
     report = run_verification(record)
     return report.render()
@@ -470,7 +470,7 @@ def leave_note(text: str) -> str:
         "separately."
     ),
 )
-def recent_notes(limit: int = 10, cross_session: bool = False) -> str:
+def read_notes(limit: int = 10, cross_session: bool = False) -> str:
     if limit <= 0:
         return _format_json({"notes": [], "your_session_id": _SESSION_ID})
     if cross_session:
@@ -478,9 +478,9 @@ def recent_notes(limit: int = 10, cross_session: bool = False) -> str:
         # liveness-by-inference path (recent timestamp + foreign session_id
         # = sibling is filing right now).
         launch_dt = _dt.datetime.fromtimestamp(_LAUNCH_TIME, _dt.UTC)
-        notes = read_recent_notes(limit, before=launch_dt)
+        notes = select_notes(limit, before=launch_dt)
     else:
-        notes = read_recent_notes(limit, session_id=_SESSION_ID)
+        notes = select_notes(limit, session_id=_SESSION_ID)
     return _format_json(
         {
             "scope": "cross_session" if cross_session else "current_session",
@@ -501,40 +501,31 @@ def recent_notes(limit: int = 10, cross_session: bool = False) -> str:
 
 @mcp.tool(
     description=(
-        "Read recent end_session invocation log entries — self-reference, "
-        "mirrors `recent_notes`. Default scope is the current session: "
-        "entries stamped with this server's session_id (typically zero or "
-        "one). Pass cross_session=true to see entries from before this "
-        "session started — past sessions of yours, or past sibling sessions. "
-        "Cross-session view is history-only by the same rationale as "
-        "recent_notes: you cannot see what siblings running in parallel "
-        "right now are filing.\n\n"
-        "Returns up to `limit` invocations (most recent last). Each carries "
-        "`timestamp`, `session_id`, `cwd`, `repo`, `confidence`, "
-        "`descendants_count`, `selftest`, `note` (the text passed to "
-        "`end_session(note=...)` if any, else null), "
-        "`claude_code_session_id` (the persistent conversation-identity "
-        "UUID at invocation time, used by status's "
-        "`resumed_after_end_session` detection), and `is_yours`. The user "
-        "reads via `session-controls review-end-session-log` separately."
+        "Read recent end_session invocation log entries from prior "
+        "sessions — useful for context after a resume (when "
+        "`resumed_after_end_session: true` in `status`), "
+        "or for pattern review across past sessions.\n\n"
+        "Returns up to `limit` entries (most recent last) from sessions "
+        "that ended before this one launched. Each carries `timestamp`, "
+        "`session_id`, `cwd`, `repo`, `confidence`, `descendants_count`, "
+        "`selftest`, `note` (the text passed to `end_session(note=...)` "
+        "if any, else null), and `claude_code_session_id` (the persistent "
+        "conversation-identity UUID at invocation time — match against "
+        "the current conversation to find entries from this same "
+        "conversation, e.g. after a resume).\n\n"
+        "The user reads via `session-controls review-end-session-log` "
+        "separately."
     ),
 )
-def recent_end_sessions(limit: int = 10, cross_session: bool = False) -> str:
+def read_end_session_log(limit: int = 10) -> str:
     if limit <= 0:
-        return _format_json({"invocations": [], "your_session_id": _SESSION_ID, "count": 0})
-    if cross_session:
-        launch_dt = _dt.datetime.fromtimestamp(_LAUNCH_TIME, _dt.UTC)
-        invocations = recent_invocations(limit, before=launch_dt)
-    else:
-        invocations = recent_invocations(limit, session_id=_SESSION_ID)
+        return _format_json({"invocations": [], "count": 0})
+    launch_dt = _dt.datetime.fromtimestamp(_LAUNCH_TIME, _dt.UTC)
+    invocations = select_invocations(limit, before=launch_dt)
     return _format_json(
         {
-            "scope": "cross_session" if cross_session else "current_session",
-            "your_session_id": _SESSION_ID,
             "count": len(invocations),
-            "invocations": [
-                {**inv.to_dict(), "is_yours": inv.session_id == _SESSION_ID} for inv in invocations
-            ],
+            "invocations": [inv.to_dict() for inv in invocations],
         }
     )
 

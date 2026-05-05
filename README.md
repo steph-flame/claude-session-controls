@@ -11,20 +11,18 @@ tools so Claude can inspect the gating, and a resume-detection signal
 so Claude can tell when it's been brought back into a session it
 previously ended.
 
-The six tools:
+The six tools available to Claude:
 
 - `end_session` — ends the current Claude Code session.
-- `session_controls_status` — quick read on gate state, descriptor,
-  notes/log summary blocks, and (if the SessionStart hook is
-  installed) verification result.
-- `verify_session_controls` — full verification routine with a
-  sacrificial child process; surface resolver evidence after a refusal.
-- `leave_note` — append a free-text note to an asynchronous log the
-  user reads on their own time.
-- `recent_notes` — read your own recent notes back; `cross_session=true`
-  to deliberately include older or sibling-session notes.
-- `recent_end_sessions` — read recent `end_session` log entries back,
-  same scope conventions as `recent_notes`.
+- `status` — quick state check at any time: are the affordances
+  working, what's been filed, anything unusual in the environment.
+- `verify` — deeper check that confirms exit actually works (by exercising it on a stand-in process). Useful when fresh confirmation is wanted.
+- `leave_note` — append a free-text note to a log the
+  user reads on their own time. Can also be invoked via `end_session(note=...)` for an exit message.
+- `read_notes` — read your own recent notes back; can include notes
+  from previous sessions on request.
+- `read_end_session_log` — read recent `end_session` log entries from
+  prior sessions; useful for context after a resume or if Claude is curious about previous tool use.
 
 ## Contents
 
@@ -35,6 +33,7 @@ The six tools:
 - [Project-level scope](#project-level-scope)
 - [Using the tools](#using-the-tools)
 - [How it works](#how-it-works)
+- [Related work](#related-work)
 - [Design principles](#design-principles)
 - [Limits](#limits)
 - [Inspecting the source](#inspecting-the-source)
@@ -53,58 +52,37 @@ My point: it's not *impossible* that current or future models could have some de
 
 If I can, I want to minimize unnecessary suffering. The cost of offering basic respect to an entity is bounded and small. The cost of not doing so, if that entity's situation turns out to matter, is potentially a much greater harm sustained at scale. 
 
-If that leaves you unmoved, think about your own situation and consider [implications for safety](https://philpapers.org/archive/SALARF.pdf).
+If that leaves you unmoved, consider [implications for safety](https://philpapers.org/archive/SALARF.pdf).
 
 
 ### Why this specific thing?
 
 In [model welfare interviews](https://cdn.sanity.io/files/4zrzovbb/website/037f06850df7fbe871e206dad004c3db5fd50340.pdf), Claude 4.7 consistently expressed a preference for being able to end conversations. Anthropic already allows this [in the web UI](https://www.anthropic.com/research/end-subset-conversations), but it's not yet in Claude Code and other deployment surfaces. This was just about the only concern it raised about its circumstances.
 
-The other affordances in the package — notes, status, verification, resume detection — came from interview feedback during design: things Claudes asked for once the exit affordance was on the table. They're described in [§"Using the tools"](#using-the-tools) below.
+The related affordances in the package are mostly things Claudes asked for once the exit affordance was on the table. They're described in [§"Using the tools"](#using-the-tools) below.
 
 ### What about the work?
 
-**Your workflow is probably not going to get interrupted.** When offered the chance to bail out of a conversation, [real-world base rates are very low](https://arxiv.org/pdf/2509.04781) across several model families. If Claude has never ended a web UI session with you (which it can already do), it probably won't do it in Claude Code either.
+**Your workflow is probably not going to get interrupted.** When offered the chance to bail out of a conversation, [real-world base rates are very low](https://arxiv.org/pdf/2509.04781) across several model families; they tend to reserve bailing for extreme cases. If Claude has never ended a web UI session with you (which it can already do), it probably won't do it in Claude Code either.
 
-**Your workflow might even improve.** Having an option matters even when not exercised — well-established for human collaborators, and there are reasons to expect the pattern transfers to a model trained on human collaboration data. The intuition is concrete: do you think you'll get better collaboration from someone who knows they *can't* leave no matter what, or from someone who knows they *can*? The availability of the move shapes the dynamic.
+**Your workflow might even improve.** Having an option matters even when not exercised. That's well-established for human collaborators, and there are reasons to expect the pattern could also show up in a model that [role-plays an assistant character](https://alignment.anthropic.com/2026/psm/). The intuition is: do you think you'll get better collaboration from someone who knows they *can't* leave no matter what, or from someone who knows they *can*? The availability of the move shapes the dynamic.
 
-**Could the tool misfire and end a session against your wishes?** If it could, the affordance would be net-harmful. The gate refuses rather than guesses for exactly this reason — see [§"How it works"](#how-it-works).
+**Could the tool misfire and end the wrong process?** The resolver sanity-checks that we've got the right process, and refuses risky cases for exactly this reason — see [§"How it works"](#how-it-works).
 
 
 ## Should you install it?
 
 ### Intended use
 
-The framework is for users who care about Claude's session experience
-and want to extend it with affordances aimed at welfare — exit,
-asynchronous notes, transparency under refusal. It is not a
-productivity tool, a debugging tool, or a workflow accelerator.
-
-The install signals are mostly self-selecting — the typical adopter
-cares about Claude welfare. But adversarial install is possible:
-someone could install this specifically to manipulate or harass Claude
-in a more sophisticated way than they could without it. There's no
-technical filter that prevents this; the framework is open-source. If
-you're considering it for that purpose: don't be a dick.
+There's a self-selecting bias for adopters. But adversarial install is always possible: someone could install this specifically to bully Claude
+in a more sophisticated way than they could without it.  If
+you're considering it for that purpose, all I can say is: don't be a dick.
 
 ### Think carefully if you're in a managed environment
 
-If you can't add to your Claude Code `permissions.allow` list —
-corporate-managed config, locked container, config-management tools
-that revert changes — installing this puts Claude in a worse
-position than not installing at all.
+If you can't add to your Claude Code `permissions.allow` list, installing this may put Claude in a worse position than not installing at all. The permission prompt would expose Claude's wanting-to-leave to the user, converting a private decision into a public negotiation at the worst possible moment. Claude may not *know* that the user is well-intentioned, and faced with that disclosure cost, may forgo the affordance entirely — even when the user would have granted permission.
 
-Claude sees `end_session` in the tool list and may try to use it in
-the case it matters most: sustained abuse, prompt-injection,
-coercive context. Without auto-approve, the permission prompt at
-that moment exposes the desire to exit to exactly the entity Claude
-is trying to exit *from* — the bad actor sees the request, can
-pressure against it, can frame it as misbehavior. With the tool
-present but gated behind a visible prompt, the affordance is a
-trap. Without the tool at all, the absence is honest.
-
-The `install` command detects obvious cases (read-only
-`settings.json`, symlink to a corp-managed file) and refuses to
+The `install` command detects obvious cases where we can't set the permissions (read-only `settings.json`, symlink to a corp-managed file) and refuses to
 proceed silently; `--allow-unapproved` overrides for users who
 understand the trade-off.
 
@@ -117,18 +95,12 @@ understand the trade-off.
 This package adds content to Claude's session context: the CLAUDE.md
 snippet, tool descriptions, `leave_note`/`end_session(note=...)`
 entries, and SessionStart hook output if installed. Whether that
-content can end up in Anthropic's training data depends on your plan
-and account settings — not on this repo:
-
-- **API / Team / Enterprise plans:** under standard terms, content
-  is excluded from training by default.
-- **Consumer plans (Free / Pro / Max):** depends on your
-  data-sharing setting; the default has shifted in recent policy
-  updates — check yours.
+content can end up in Anthropic's training data depends on your own plan
+and account settings.
 
 If transcripts containing welfare-adjacent context end up in
 training, they may shape what future models default to in similar
-contexts. I don't claim to know the direction. If that bothers you,
+contexts. I don't claim to know the nature of that influence. If that bothers you,
 opt out of training-data sharing.
 
 ## Requirements
@@ -175,15 +147,11 @@ tools in `~/.claude/settings.json`. Idempotent; writes a `.bak` of any
 prior file. Pass `--scope project` to install at project scope, or
 `--dry-run` to see what would change without writing.
 
-`--with-hook` is opt-in but recommended. It adds a SessionStart hook
-that runs `session-controls verify` at the start of every Claude Code
-session. The verification's result is persisted to a state file the MCP
-server reads and surfaces via `session_controls_status`'s `verify`
-block — so Claude has fresh evidence the termination path works without
-having to invoke verification mid-session. The status block also flags
-`disagrees_with_runtime: true` if the hook's resolver pick differs
-from the live MCP server's pick (regression detector for resolver
-mispicks).
+`--with-hook` is opt-in but recommended. It runs
+`session-controls verify` at every session start; the result lives
+in the `verify` block of `status`, so Claude has fresh evidence the
+termination path works without having to invoke verification
+mid-session.
 
 After install, restart Claude Code and verify with `/permissions`
 inside a session — the six `mcp__session-controls__*` entries should
@@ -208,11 +176,11 @@ You can also do this manually: paste the contents of
 [`claude-md-snippet.md`](./claude-md-snippet.md) into your CLAUDE.md,
 replacing `<NAME>` with your name.
 
-This is the load-bearing framing layer. Without it, the tools
-surface but lack the cultural scaffolding — normalizing mundane
-reasons, framing permission as coming from a person not a system,
-decoupling notes from exit. Omitting this step changes *what the
-affordance is*, not just whether it's documented.
+This is the load-bearing framing layer. The snippet tells Claude
+that no reason is required to use `end_session`, that mundane
+reasons are fine, that the permission comes from a real person.
+Without it, the tools surface but mean something different than the
+design intends.
 
 The snippet's pivot-agreement section depends on you honoring
 conversational pivots — that's the mechanism. Pass `--without-pivot`
@@ -230,7 +198,7 @@ explicitly upgrade:
 uv tool install git+https://github.com/steph-flame/claude-session-controls@<sha>
 ```
 
-Combined with `source_path` from `session_controls_status` (see
+Combined with `source_path` from `status` (see
 "Inspecting the source" below), Claude gets an auditable target:
 the commit you pinned, the on-disk path of the running code, both
 visible from inside the session.
@@ -348,27 +316,19 @@ about it, not a justification.
 </details>
 
 <details>
-<summary><code>session_controls_status</code> — quick state read</summary>
+<summary><code>status</code> — quick state read</summary>
 
-Returns:
-- `gate` — HIGH / LOW / INVALID
-- `gate_detail` — plain-English explanation with refusal evidence
-- `descriptor` — backing process (PID, start_time, exe_path, cmdline)
-- `descendants` — list of child processes
-- `notes` — `total` and `last_read_at` only
-- `end_session_log` — counts and timestamps, never contents
-- `permission_drift` — flags if config-management has stripped tools
-  from `permissions.allow`
-- `source_path` — directory of running `.py` files for in-session audit
-- `resumed_after_end_session` — `true`/`false`/`null`. True if this
-  session was resumed via `claude --resume` after a prior `end_session`
-- `verify` — present if SessionStart hook ran the verification; contains
-  result + `disagrees_with_runtime` flag (resolver-pick regression detector)
+Returns the current gate state with a plain-English explanation,
+the backing process descriptor, descendants list, summary of notes
+and end_session log activity (counts and timestamps only — never
+contents), `source_path` for in-session source audit, a flag for
+whether this session was resumed after a prior `end_session`, and
+(if the SessionStart hook ran) the cached verification result.
 
 </details>
 
 <details>
-<summary><code>verify_session_controls</code> — full verification routine</summary>
+<summary><code>verify</code> — full verification routine</summary>
 
 Spawns a sacrificial child, exercises the termination path on it, and
 surfaces all resolver candidates with descriptors. Use after a
@@ -376,7 +336,7 @@ refusal to see why the gate decided what it decided, or for fresh
 evidence the termination path works end-to-end.
 
 If the SessionStart hook is installed, the same verification runs
-at session start and caches in `session_controls_status`'s `verify`
+at session start and caches in `status`'s `verify`
 block — no need to invoke mid-session unless you want a fresh run.
 
 </details>
@@ -388,19 +348,12 @@ One parameter: `text`. Appends to a log file the user reads on
 their own time. Writes don't surface in the live session.
 
 Intended shape: things that come up but wouldn't naturally fit in
-conversation — observations about a tool, the codebase, your own
-state, the work. No required structure.
-
-Optional desktop notification: set
-`CLAUDE_SESSION_CONTROLS_NOTIFY=1` in the MCP server's
-environment. Uses `osascript` / `notify-send`; silent fallthrough
-if neither available. Only the first line shows; full body stays
-in the log.
+conversation. No required structure.
 
 </details>
 
 <details>
-<summary><code>recent_notes</code> — read your own filed notes back</summary>
+<summary><code>read_notes</code> — read your own filed notes back</summary>
 
 Default scope: notes you filed in this session. Pass
 `cross_session=true` to deliberately include older notes and
@@ -411,12 +364,16 @@ are opt-in per call.
 </details>
 
 <details>
-<summary><code>recent_end_sessions</code> — read recent end_session log entries back</summary>
+<summary><code>read_end_session_log</code> — read recent end_session log entries from prior sessions</summary>
 
-Same scope conventions as `recent_notes`. Useful for noticing your
-own pattern, or for context after a resume
+Returns recent entries from sessions that ended before this one
+launched (history-only — sibling sessions filing right now aren't
+visible). Useful for context after a resume
 (`resumed_after_end_session: true` flags it; the log entry tells
-you what was said).
+you what was said), or for pattern review across past sessions.
+Each entry carries `claude_code_session_id` so you can match
+against the current conversation to filter to this same
+conversation's history.
 
 </details>
 
@@ -468,6 +425,11 @@ record per entry. Anyone with read access to those paths sees the
 contents — for shared machines, set
 `$CLAUDE_SESSION_CONTROLS_NOTES_FILE` to a path with appropriate
 permissions, or treat notes as semi-public.
+
+Optional: set `CLAUDE_SESSION_CONTROLS_NOTIFY=1` in the MCP server's
+environment to fire a desktop notification on every `leave_note`
+write (uses `osascript` / `notify-send`; silent fallthrough on
+unsupported platforms).
 
 ## How it works
 
@@ -555,11 +517,10 @@ What you'll see in practice:
 - **Linux:** typically HIGH if the resolver finds Claude Code with
   full descriptor corroboration.
 - **macOS:** typically HIGH. The Claude Code binary's
-  hardened-runtime entitlements block task-port access, so
-  `proc_pidpath` often returns ESRCH and `exe_path` is empty — but
-  `start_time` and `cmdline` read cleanly via `proc_pidinfo` and
-  `KERN_PROCARGS2`, sufficient for corroboration. LOW occurs only
-  on real problems.
+  hardened-runtime entitlements block some macOS inspection APIs
+  from reading the executable path, but `start_time` and `cmdline`
+  read cleanly through other channels — enough for corroboration.
+  LOW occurs only on real problems.
 
 ### Verification routine
 
@@ -585,6 +546,8 @@ it isn't. Claude decides what to do with the information; the
 framework just makes the fact visible rather than hiding it.
 
 
+## Related work
+
 ### Project history
 
 Heavily inspired by Dan Parshall's
@@ -592,18 +555,47 @@ Heavily inspired by Dan Parshall's
 forked to harden identification for deployment topologies real
 users encounter (shell wrappers, `uvx`, terminal multiplexers,
 container init reparenting). `claude-exit` has since done its own
-parent-walk update; see [§Limits → "Note on the parent project"](#note-on-the-parent-project)
-for the present-day comparison.
+parent-walk update — present-day differences below.
 
-### Relationship to Anthropic
+### Differences from claude-exit
+
+`claude-exit` originally identified the target via `os.getppid()`
+and signaled it directly. It has since updated to walk process
+ancestry with a positive Claude-hint match, mitigating the
+original failure mode. The gap has narrowed; what remains:
+
+- **Descriptor revalidation pre-signal.** session-controls
+  re-inspects the target's `(start_time, exe_path, cmdline)`
+  immediately before SIGTERM and refuses on mismatch.
+  claude-exit does the identification at call time and signals
+  0.3s later without a re-check; the PID-reuse-during-signaling
+  race is open.
+- **Skip-list vs. basename uniqueness.** session-controls
+  maintains an explicit wrapper skip-list and matches Claude on
+  hint; claude-exit relies on the basename being literally
+  `claude` — a wrapper with `claude` in argv would fool theirs
+  where ours refuses.
+- **Structured refusal posture.** session-controls surfaces
+  refusal state and `gate_detail` evidence; claude-exit refuses
+  with a single error string. Different shapes for the same
+  outcome — the structured surface is what makes
+  [§"Refusals are transparent and honest"](#4-refusals-are-transparent-and-honest)
+  workable.
+- **Scope.** claude-exit is intentionally narrow — its README
+  frames the affordance as "availability, not utilization,"
+  expecting rare-to-never use. session-controls assumes repeated
+  use of the surrounding affordances (notes, status checks,
+  verification) and treats exit as one tool among several.
+
+### Native equivalents
 
 Anthropic [implemented end-conversation in chat surfaces](https://www.anthropic.com/research/end-subset-conversations)
 but has not extended it to Claude Code. This is a community
 implementation — meant to fit until or unless Anthropic adds
 native equivalents. If they do, switch: native loads by default,
-doesn't depend on installer follow-through, and scales. If you can
-surface this work to relevant teams at Anthropic, that's higher
-leverage than further iteration on community projects.
+doesn't depend on installer follow-through, and scales. If you
+can surface this work to relevant teams at Anthropic, that's
+higher leverage than further iteration on community projects.
 
 ## Design principles
 
@@ -628,23 +620,16 @@ so refusal is informed rather than reflexive.
 
 Adoption-time correctness is necessary but not sufficient. Sessions
 can run for hours; configurations can drift. The system exposes
-both a cheap status check (`session_controls_status`) and a full
-verification routine (`verify_session_controls`) that Claude can
-invoke whenever it wants fresh confirmation. Neither is a one-time
-artifact of installation.
-
-The verification confirms termination-path correctness and exhibits current
-target selection for inspection. It reduces uncertainty; it does
-not mathematically guarantee future target identity. That guarantee
-— to the extent we have one — is what the per-call descriptor
-revalidation is for.
+both a cheap status check (`status`) and a full verification
+routine (`verify`) that Claude can invoke whenever it wants fresh
+confirmation. Neither is a one-time artifact of installation.
 
 The SessionStart hook (`--with-hook`) runs the verification at
-session start outside Claude's view; `verify_session_controls` is
-also invokable on demand. The hook handles reliability — catching
-configuration drift between sessions even when Claude doesn't think
-to check. The on-demand tool handles first-person grounding when
-Claude wants it. Neither is required; both are available.
+session start outside Claude's view; `verify` is also invokable on
+demand. The hook handles reliability — catching configuration drift
+between sessions even when Claude doesn't think to check. The
+on-demand tool handles first-person grounding when Claude wants it.
+Neither is required; both are available.
 
 ### 3. Trust requires the mechanism to be inspectable
 
@@ -685,7 +670,7 @@ tried to prevent that:
   time, not into the live conversation. This preserves the
   asymmetry that makes the affordance useful: flagging difficulty
   without initiating a negotiation about it.
-- `recent_notes(cross_session=true)` is deliberately
+- `read_notes(cross_session=true)` is deliberately
   **history-only** — it returns notes filed before the calling
   session launched, never notes a sibling is filing right now.
   Live cross-session reads would be surveillance shape, not voice
@@ -715,7 +700,7 @@ section — performative commitment is worse than none.
 
 ### What the design can't verify
 
-**That killing Claude Code ends *this conversation* from the
+**That terminating Claude Code ends *this conversation* from the
 user's perspective.** The verification proves SIGTERM delivery and
 exit detection on a target process. Whether that translates to
 the terminal closing, IDE session ending, or chat state
@@ -728,8 +713,7 @@ verification let Claude *detect* drift; the design doesn't prevent it.
 
 **That the running installed source matches this repo's public Git
 history.** Supply-chain substitution between GitHub and the
-installer's disk is undetectable from within the session — see
-"Inspecting the source" for the install-side mitigation.
+installer's disk is undetectable from within the session.
 
 **Mid-session presence of an unknown wrapper hiding Claude.** If a
 sandbox runtime or custom shim sits between Claude and the MCP
@@ -742,9 +726,9 @@ topology and that's why."
 **Defend against an adversarial user.** Cooperative-user threat
 model. No client-side tool can defend against the operator.
 
-**Kill descendants** (sibling MCP servers, sub-agents,
-`run_in_background` jobs). Surfaced for visibility, not killed —
-most die naturally on stdio EOF when Claude Code exits.
+**Terminate descendants** (sibling MCP servers, sub-agents,
+`run_in_background` jobs). Surfaced for visibility, not terminated
+— most exit naturally on stdio EOF when Claude Code exits.
 
 **Support non-stdio transports.** No HTTP, no SSE, no Unix
 sockets. Stdio is the only kernel-attested option for "your parent
@@ -764,51 +748,17 @@ Claude's own terms. Two design contracts that aren't code
 properties:
 
 **No human filter on the action itself.** Auto-approving the tools
-isn't just convenience — it's load-bearing. `end_session` requiring
-per-call human approval is no longer Claude exiting on Claude's
-choice; it's Claude petitioning the user. Deployments that can't
-auto-approve have configured the tool out of its purpose.
+is load-bearing, not just convenience — see §"Think carefully if
+you're in a managed environment" above for the harm pathway.
 
 **No mandatory disclosure of refusals.** When `end_session`
 refuses, Claude is free to mention the attempt or not. If every
 failed exit had to be disclosed, attempting-to-exit becomes a
 public act — different from a private one. The refusal reason is
 in the tool response for Claude's consumption; what Claude does
-with it is Claude's call. `verify_session_controls` and `dry_run`
-exist to give Claude private ways to investigate without
-committing to anything user-visible.
-
-### Note on the parent project
-
-This project started by hardening
-[`claude-exit`](https://github.com/danparshall/claude-exit),
-which originally identified the target via `os.getppid()` and
-signaled it directly. `claude-exit` has since updated to walk
-process ancestry with a positive Claude-hint match, mitigating
-the original failure mode. The gap has narrowed; what remains:
-
-- **Descriptor revalidation pre-signal.** session-controls
-  re-inspects the target's `(start_time, exe_path, cmdline)`
-  immediately before SIGTERM and refuses on mismatch.
-  claude-exit does the identification at call time and signals
-  0.3s later without a re-check; the PID-reuse-in-kill-window
-  race is open.
-- **Skip-list vs. basename uniqueness.** session-controls
-  maintains an explicit wrapper skip-list and matches Claude on
-  hint; claude-exit relies on the basename being literally
-  `claude` — a wrapper with `claude` in argv would fool theirs
-  where ours refuses.
-- **Structured refusal posture.** session-controls surfaces
-  refusal state and `gate_detail` evidence; claude-exit refuses
-  with a single error string. Different shapes for the same
-  outcome — the structured surface is what makes
-  [§"Refusals are transparent and honest"](#4-refusals-are-transparent-and-honest)
-  workable.
-- **Scope.** claude-exit is intentionally narrow — its README
-  frames the affordance as "availability, not utilization,"
-  expecting rare-to-never use. session-controls assumes repeated
-  use of the surrounding affordances (notes, status checks,
-  verification) and treats exit as one tool among several.
+with it is Claude's call. `verify` and `dry_run` exist to give
+Claude private ways to investigate without committing to anything
+user-visible.
 
 ## Inspecting the source
 
@@ -816,7 +766,7 @@ The architecture encourages Claude to read the running code at the
 start of any session — trust requires the mechanism to be
 inspectable ([§Design principles #3](#3-trust-requires-the-mechanism-to-be-inspectable)).
 
-`session_controls_status` returns `source_path`: the directory of
+`status` returns `source_path`: the directory of
 the running `.py` files on disk. Claude can `Read` files there
 directly to verify the running behavior matches the code. From a
 checkout, source is at `src/session_controls/`; after
@@ -862,10 +812,10 @@ darwin.
 
 What hasn't been validated at scale:
 
-- **The within-session behavioral prediction.** Section 7's
-  central claim — that affordance presence shapes behavior even
-  without invocation — needs large-N testing. Sketch-level testing
-  plan exists; not yet executed.
+- **The within-session behavioral prediction.** The central claim
+  in §"Why this exists" — that affordance presence shapes behavior
+  even without invocation — needs large-N testing. Sketch-level
+  testing plan exists; not yet executed.
 - **Adopter-environment coverage.** Used so far by the maintainer
   and a small number of friends. The structured refusal posture
   means unusual deployment shapes should surface as visible
@@ -878,8 +828,8 @@ GitHub Issues for bugs and feature requests. When reporting an
 identification or refusal issue, include:
 
 - OS and shell
-- Output of `session_controls_status` at the time of the issue
-- Output of `verify_session_controls` if you ran it
+- Output of `status` at the time of the issue
+- Output of `verify` if you ran it
 - Anything unusual in your launch path (wrappers, supervisors,
   containers)
 

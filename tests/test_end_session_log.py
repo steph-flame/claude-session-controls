@@ -15,7 +15,7 @@ from session_controls.end_session_log import (
     detect_repo_root,
     iter_invocations,
     mark_reviewed,
-    recent_invocations,
+    select_invocations,
     select_unreviewed,
     summarize,
 )
@@ -193,7 +193,7 @@ def test_select_unreviewed_filters_by_marker(log_paths: tuple[Path, Path]) -> No
     assert select_unreviewed(invocations, future) == []
 
 
-def test_recent_invocations_session_id_filter(log_paths: tuple[Path, Path]) -> None:
+def test_select_invocations_session_id_filter(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
         session_id="alpha",
@@ -213,12 +213,12 @@ def test_recent_invocations_session_id_filter(log_paths: tuple[Path, Path]) -> N
         descendants_count=0,
         path=log,
     )
-    only_alpha = recent_invocations(10, session_id="alpha", path=log)
+    only_alpha = select_invocations(10, session_id="alpha", path=log)
     assert len(only_alpha) == 2
     assert all(inv.session_id == "alpha" for inv in only_alpha)
 
 
-def test_recent_invocations_before_filter(log_paths: tuple[Path, Path]) -> None:
+def test_select_invocations_before_filter(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
         session_id="early",
@@ -236,12 +236,12 @@ def test_recent_invocations_before_filter(log_paths: tuple[Path, Path]) -> None:
     # Strict-less-than against the second record's timestamp keeps only the
     # first, regardless of how close in time the two appends landed.
     cutoff = all_invocations[1].timestamp
-    history_only = recent_invocations(10, before=cutoff, path=log)
+    history_only = select_invocations(10, before=cutoff, path=log)
     assert len(history_only) == 1
     assert history_only[0].session_id == "early"
 
 
-def test_recent_invocations_limit(log_paths: tuple[Path, Path]) -> None:
+def test_select_invocations_limit(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     for i in range(5):
         append_invocation(
@@ -250,11 +250,11 @@ def test_recent_invocations_limit(log_paths: tuple[Path, Path]) -> None:
             descendants_count=0,
             path=log,
         )
-    last_two = recent_invocations(2, path=log)
+    last_two = select_invocations(2, path=log)
     assert [inv.session_id for inv in last_two] == ["s3", "s4"]
 
 
-def test_recent_invocations_zero_limit(log_paths: tuple[Path, Path]) -> None:
+def test_select_invocations_zero_limit(log_paths: tuple[Path, Path]) -> None:
     log, _ = log_paths
     append_invocation(
         session_id="s",
@@ -262,7 +262,7 @@ def test_recent_invocations_zero_limit(log_paths: tuple[Path, Path]) -> None:
         descendants_count=0,
         path=log,
     )
-    assert recent_invocations(0, path=log) == []
+    assert select_invocations(0, path=log) == []
 
 
 def test_detect_repo_root_finds_dotgit(tmp_path: Path) -> None:

@@ -40,7 +40,7 @@ fields):
                         `leave_note` (so the user sees it via
                         `session-controls notes`); the copy here is for
                         Claude reading the invocation log via
-                        `recent_end_sessions` — it gives context inline
+                        `read_end_session_log` — it gives context inline
                         rather than requiring a cross-log lookup. Null
                         when no note was passed.
     claude_code_session_id  Claude Code's conversation-identity UUID at
@@ -112,7 +112,7 @@ def append_invocation(
     `cwd` defaults to the current process's cwd. `repo` is detected from `cwd`.
     `note` is optional free text — same content as the leave_note that gets
     filed in parallel; the copy here makes it visible inline when Claude
-    reads the invocation log via `recent_end_sessions`.
+    reads the invocation log via `read_end_session_log`.
 
     The write is serialized with an exclusive flock — parallel sessions
     share this file.
@@ -288,7 +288,7 @@ def select_unreviewed(
     return [inv for inv in invocations if inv.timestamp > last_reviewed]
 
 
-def recent_invocations(
+def select_invocations(
     limit: int,
     *,
     since: _dt.datetime | None = None,
@@ -298,7 +298,7 @@ def recent_invocations(
 ) -> list[Invocation]:
     """Return up to `limit` most recent invocations, optionally filtered.
 
-    Filter semantics mirror `notes.recent_notes`: `since` is inclusive lower
+    Filter semantics mirror `notes.select_notes`: `since` is inclusive lower
     bound, `before` is strict upper bound (used by the cross_session path to
     bound to history-only), `session_id` filters to a specific session's
     records.

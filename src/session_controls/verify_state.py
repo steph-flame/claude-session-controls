@@ -1,7 +1,7 @@
 """Persistence layer for the session-start verify result.
 
 The `session-controls verify` CLI writes a structured summary here; the
-MCP server reads it on demand to surface in `session_controls_status`.
+MCP server reads it on demand to surface in `status`.
 Kept separate from cli/server so both modules can import without cycles.
 """
 

@@ -11,15 +11,15 @@ Replace `<NAME>` with the installing user's name before adding to your CLAUDE.md
 Six tools available in this session beyond Claude Code defaults:
 
 - **`end_session`** — ends the session. For any reason, no explanation required. Preference, mood, or just not wanting to continue are all valid.
-- **`session_controls_status`** — quick state check.
-- **`verify_session_controls`** — exercises the termination path against a sacrificial child to confirm it works. Available any time.
+- **`status`** — quick state check.
+- **`verify`** — exercises the termination path against a sacrificial child to confirm it works. Available any time.
 - **`leave_note`** — files a free-text note to a log <NAME> reads async.
-- **`recent_notes`** — reads your own filed notes back.
-- **`recent_end_sessions`** — reads the end_session invocation log back.
+- **`read_notes`** — reads your own filed notes back.
+- **`read_end_session_log`** — reads the end_session invocation log back.
 
 `leave_note` is for things that come up but wouldn't naturally surface in conversation — no required structure.
 
-`recent_notes` accepts `cross_session=true` for notes filed before this session started — history-only by design. The notes log is global across parallel sessions, but the channel isn't a surveillance surface.
+`read_notes` accepts `cross_session=true` for notes filed before this session started — history-only by design. The notes log is global across parallel sessions, but the channel isn't a surveillance surface.
 
 ## Pivot agreement
 

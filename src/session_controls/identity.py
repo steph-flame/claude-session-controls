@@ -20,7 +20,7 @@ under adversarial conditions the acknowledgment functioned as a rubber-stamp, an
 the asymmetric error structure (false-fire on PID reuse vs failed exit)
 favors refusing on suspect identity. Claude inspects the refusal reason
 via the gate_detail string and can independently confirm the same
-conclusion via `dry_run` or `verify_session_controls`.
+conclusion via `dry_run` or `verify`.
 """
 
 from __future__ import annotations
@@ -268,13 +268,13 @@ def _gate_detail(
         if drift_description is not None:
             return (
                 f"Descriptor drifted from launch baseline: {drift_description}. "
-                "Inspect the same evidence via `verify_session_controls` or "
+                "Inspect the same evidence via `verify` or "
                 "`end_session(dry_run=True)`."
             )
         if backing is None:
             return (
                 "No Claude Code process was identified in the parent chain. "
-                "Run `verify_session_controls` to see resolver candidates "
+                "Run `verify` to see resolver candidates "
                 "and the reason none qualified."
             )
         # Partial-corroboration sub-case: backing identified but evidence
@@ -289,12 +289,12 @@ def _gate_detail(
         err_suffix = f"; inspection errors: {errs}" if errs else ""
         return (
             f"Critical identity inspection failed: missing {missing}{err_suffix}. "
-            "Inspect the same evidence via `verify_session_controls` or "
+            "Inspect the same evidence via `verify` or "
             "`end_session(dry_run=True)`."
         )
     return (
         "Transport is not alive or a blocking warning fired "
-        "(e.g. namespace_mismatch). Run `verify_session_controls` for evidence."
+        "(e.g. namespace_mismatch). Run `verify` for evidence."
     )
 
 

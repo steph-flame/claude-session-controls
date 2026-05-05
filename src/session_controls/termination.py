@@ -59,7 +59,7 @@ def end_session(
     no override: cases where evidence is suspect (descriptor drift, partial
     corroboration) refuse, with the specific reason in `refused_reason` so
     Claude can confirm or judge the call. The same conclusion is visible
-    via `dry_run` and `verify_session_controls` for independent inspection.
+    via `dry_run` and `verify` for independent inspection.
     """
     outcome = TerminationOutcome(success=False, exited=False, dry_run=dry_run)
     outcome.descendants = [d.to_dict() for d in record.descendants]
@@ -78,7 +78,7 @@ def end_session(
         outcome.refused_reason = (
             f"descriptor revalidation failed: {why}. The target process may "
             "have exited or been swapped since launch — re-check with "
-            "session_controls_status."
+            "status."
         )
         return outcome
 
@@ -137,7 +137,7 @@ def _gate_check(record: SessionRecord) -> str | None:
     if record.confidence is Confidence.INVALID:
         return (
             "INVALID — transport not alive, or kernel evidence is suspect "
-            "(e.g. namespace mismatch). Run verify_session_controls for "
+            "(e.g. namespace mismatch). Run verify for "
             "the resolver evidence and warnings."
         )
     if record.confidence is Confidence.LOW:
@@ -146,19 +146,19 @@ def _gate_check(record: SessionRecord) -> str | None:
             return (
                 f"LOW — descriptor drifted from launch baseline: "
                 f"{record.drift_description}. Inspect the same evidence "
-                "via verify_session_controls or end_session(dry_run=True)."
+                "via verify or end_session(dry_run=True)."
             )
         if record.backing is None:
             return (
                 "LOW — no Claude Code process identified in the parent "
-                "chain. Run verify_session_controls to see which candidates "
+                "chain. Run verify to see which candidates "
                 "the resolver found and why none qualified."
             )
         return (
             "LOW — critical identity inspection failed (see "
-            "session_controls_status.gate_detail for which fields "
+            "status.gate_detail for which fields "
             "are missing). Inspect the same evidence via "
-            "verify_session_controls or end_session(dry_run=True)."
+            "verify or end_session(dry_run=True)."
         )
     # HIGH — backing must be present (the determine_confidence path
     # guarantees this; defensive check for type-narrowing).

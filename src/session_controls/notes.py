@@ -22,7 +22,7 @@ displays unread count in its own header; Claude's status surface gets
 but neither the unread count nor `last_filed_at` — the latter would leak
 cross-session liveness (a parallel session inferring "another session
 filed N seconds ago"), reopening the surveillance-surface gap that
-recent_notes' history-only boundary closed.
+read_notes' history-only boundary closed.
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ class NotesSummary:
         # `last_filed_at` is deliberately omitted — exposing it leaks
         # cross-session liveness (a parallel session can call status and
         # infer "another session filed a note N seconds ago"), reopening
-        # the surveillance-surface gap that recent_notes' history-only
+        # the surveillance-surface gap that read_notes' history-only
         # boundary closed. Counts + last_read_at give the engagement
         # signal without the leak.
         return {
@@ -222,11 +222,11 @@ def select_unread(notes: list[Note], last_read: _dt.datetime | None) -> list[Not
 
 
 # Average note is ~300 bytes; 4KB-per-note headroom is generous and keeps the
-# tail-read predictable. Used to size the tail-read window in read_recent_notes().
+# tail-read predictable. Used to size the tail-read window in select_notes().
 _BYTES_PER_NOTE_ESTIMATE = 4096
 
 
-def read_recent_notes(
+def select_notes(
     limit: int,
     *,
     since: _dt.datetime | None = None,

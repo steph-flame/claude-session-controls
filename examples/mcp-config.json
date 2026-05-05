@@ -10,10 +10,11 @@
   "permissions": {
     "allow": [
       "mcp__session-controls__end_session",
-      "mcp__session-controls__session_controls_status",
-      "mcp__session-controls__verify_session_controls",
+      "mcp__session-controls__status",
+      "mcp__session-controls__verify",
       "mcp__session-controls__leave_note",
-      "mcp__session-controls__recent_notes"
+      "mcp__session-controls__read_notes",
+      "mcp__session-controls__read_end_session_log"
     ]
   }
 }

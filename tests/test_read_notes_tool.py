@@ -1,4 +1,4 @@
-"""Tests for the `recent_notes` MCP tool's session-id and history-only behavior.
+"""Tests for the `read_notes` MCP tool's session-id and history-only behavior.
 
 The helper in notes.py is tested directly in test_notes.py. These tests
 exercise the server-side wiring: that current_session filters by session_id,
@@ -27,9 +27,9 @@ def tmp_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return log
 
 
-def _call_recent_notes(*, limit: int = 10, cross_session: bool = False) -> dict[str, Any]:
+def _call_read_notes(*, limit: int = 10, cross_session: bool = False) -> dict[str, Any]:
     """Invoke the MCP tool function and parse its JSON return."""
-    raw = server.recent_notes(limit=limit, cross_session=cross_session)
+    raw = server.read_notes(limit=limit, cross_session=cross_session)
     parsed: dict[str, Any] = json.loads(raw)
     return parsed
 
@@ -42,7 +42,7 @@ def test_current_session_returns_only_own_notes(
     notes_module.append_note("sibling concurrent", session_id="bbbbbb", path=tmp_log)
     notes_module.append_note("mine 2", session_id="aaaaaa", path=tmp_log)
 
-    result = _call_recent_notes(cross_session=False)
+    result = _call_read_notes(cross_session=False)
     bodies = [n["body"] for n in result["notes"]]
     assert bodies == ["mine 1", "mine 2"]
     assert all(n["is_yours"] for n in result["notes"])
@@ -74,7 +74,7 @@ def test_cross_session_is_history_only(tmp_log: Path, monkeypatch: pytest.Monkey
     # And ourselves filing.
     notes_module.append_note("our own note", session_id="aaaaaa", path=tmp_log)
 
-    result = _call_recent_notes(cross_session=True)
+    result = _call_read_notes(cross_session=True)
     bodies = [n["body"] for n in result["notes"]]
     # Historical sibling note: visible (filed before our launch).
     assert "historical sibling note" in bodies
@@ -101,20 +101,20 @@ def test_cross_session_excludes_concurrent_self_writes(
 
     notes_module.append_note("just filed by me", session_id="aaaaaa", path=tmp_log)
 
-    result = _call_recent_notes(cross_session=True)
+    result = _call_read_notes(cross_session=True)
     bodies = [n["body"] for n in result["notes"]]
     assert "just filed by me" not in bodies
 
 
 def test_response_includes_your_session_id(tmp_log: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(server, "_SESSION_ID", "deadbe")
-    result = _call_recent_notes(cross_session=False)
+    result = _call_read_notes(cross_session=False)
     assert result["your_session_id"] == "deadbe"
 
 
 def test_zero_limit_short_circuits(tmp_log: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(server, "_SESSION_ID", "aaaaaa")
     notes_module.append_note("a note", session_id="aaaaaa", path=tmp_log)
-    result = _call_recent_notes(limit=0)
+    result = _call_read_notes(limit=0)
     assert result["notes"] == []
     assert result["your_session_id"] == "aaaaaa"
