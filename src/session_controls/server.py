@@ -339,7 +339,9 @@ def end_session(
         "flag `disagrees_with_runtime` set true if the hook's resolver "
         "pick differs from the live MCP server's pick (if true, run "
         "`verify` and inspect the discovery exhibition "
-        "to see why the picks disagree). Cheap to call."
+        "to see why the picks disagree). Cheap to call.\n\n"
+        "For an active test of the termination path rather than a cached "
+        "read of the last test result, use `verify`."
     ),
 )
 def status() -> str:
@@ -414,7 +416,9 @@ def _read_verify_state(record: SessionRecord) -> dict[str, Any] | None:
         "the chosen target with all candidate evidence, and exercises the "
         "termination path against a sacrificial child process. Sub-second wall "
         "time — heavier than `status` in what it does, "
-        "not in what it costs."
+        "not in what it costs.\n\n"
+        "For a cheap read of state including the cached result of the last "
+        "verify run, use `status`."
     ),
 )
 def verify() -> str:
